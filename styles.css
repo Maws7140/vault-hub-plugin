@@ -1,0 +1,230 @@
+/* Vault Hub Plugin Styles */
+
+/* Browse View */
+.vault-hub-browse {
+  padding: 12px;
+}
+
+.vault-hub-browse-header h3 {
+  margin: 0 0 12px 0;
+  font-size: 1.2em;
+}
+
+.vault-hub-search-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.vault-hub-search-row input[type="text"] {
+  flex: 1;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: 0.9em;
+}
+
+.vault-hub-search-row button {
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.vault-hub-hint {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+/* Result Cards */
+.vault-hub-result-card {
+  padding: 12px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.vault-hub-result-card h4 {
+  margin: 6px 0 4px 0;
+  font-size: 1em;
+}
+
+.vault-hub-type-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75em;
+  font-weight: 600;
+  color: #fff;
+  text-transform: capitalize;
+}
+
+.vault-hub-result-meta {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
+.vault-hub-result-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.vault-hub-result-actions button {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+/* Modal Styles */
+.vault-hub-modal {
+  min-width: 480px;
+}
+
+.vault-hub-header {
+  margin-bottom: 16px;
+}
+
+.vault-hub-header h2 {
+  margin: 0 0 8px 0;
+}
+
+/* Progress Dots */
+.vault-hub-progress {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.vault-hub-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--background-modifier-border);
+  transition: background 0.2s;
+}
+
+.vault-hub-dot.active {
+  background: var(--interactive-accent);
+  box-shadow: 0 0 6px var(--interactive-accent);
+}
+
+.vault-hub-dot.done {
+  background: var(--text-success);
+}
+
+/* File List */
+.vault-hub-file-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.vault-hub-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: 0.9em;
+}
+
+.vault-hub-file-row:last-child {
+  border-bottom: none;
+}
+
+.vault-hub-file-row:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* Plugin List */
+.vault-hub-plugin-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.vault-hub-plugin-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.vault-hub-plugin-row:last-child {
+  border-bottom: none;
+}
+
+.vault-hub-plugin-info {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.vault-hub-plugin-name {
+  font-weight: 600;
+}
+
+.vault-hub-plugin-version {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.vault-hub-auto-badge {
+  font-size: 0.75em;
+  color: var(--text-success);
+  font-style: italic;
+}
+
+/* README Editor */
+.vault-hub-readme-editor {
+  width: 100%;
+  min-height: 300px;
+  padding: 10px;
+  border-radius: 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: 0.85em;
+  resize: vertical;
+}
+
+/* Summary */
+.vault-hub-summary {
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  margin-bottom: 16px;
+}
+
+.vault-hub-summary p {
+  margin: 4px 0;
+  font-size: 0.9em;
+}
+
+/* Navigation */
+.vault-hub-nav {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.vault-hub-nav button {
+  padding: 6px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+}

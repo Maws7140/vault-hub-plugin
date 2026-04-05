@@ -1,0 +1,23 @@
+{
+  "name": "vault-hub-plugin",
+  "version": "1.0.0",
+  "description": "Obsidian plugin for Vault Hub community platform",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "node esbuild.config.mjs production"
+  },
+  "keywords": [],
+  "author": "Maws7140",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "esbuild": "^0.19.11",
+    "obsidian": "latest",
+    "typescript": "^5.3.3",
+    "tslib": "^2.6.2",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "builtin-modules": "^3.3.0"
+  }
+}
