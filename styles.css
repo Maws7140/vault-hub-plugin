@@ -213,6 +213,165 @@
   font-size: 0.9em;
 }
 
+/* Tabs */
+.vault-hub-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+  border-bottom: 2px solid var(--background-modifier-border);
+}
+
+.vault-hub-tab {
+  padding: 6px 16px;
+  border-radius: 0;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  font-size: 0.85em;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.vault-hub-tab:hover {
+  color: var(--text-normal);
+}
+
+.vault-hub-tab.active {
+  color: var(--interactive-accent);
+  border-bottom-color: var(--interactive-accent);
+}
+
+/* Type filter row */
+.vault-hub-type-filters {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.vault-hub-type-filter {
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 0.78em;
+  font-weight: 500;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.vault-hub-type-filter:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.vault-hub-type-filter.active {
+  background: var(--interactive-accent);
+  color: #fff;
+}
+
+/* Update diff list */
+.vault-hub-update-list {
+  margin: 12px 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.vault-hub-update-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  font-size: 0.85em;
+  font-family: var(--font-monospace);
+}
+
+.vault-hub-update-row:last-child {
+  border-bottom: none;
+}
+
+.vault-hub-status-changed {
+  color: var(--color-yellow, #f59e0b);
+  font-weight: 700;
+}
+
+.vault-hub-status-unchanged {
+  color: var(--text-faint);
+}
+
+.vault-hub-status-missing {
+  color: var(--text-muted);
+}
+
+/* Success link */
+.vault-hub-success-link {
+  display: inline-block;
+  margin-top: 10px;
+  text-decoration: none;
+}
+
+/* Snippet Manager */
+.vault-hub-snippets-container {
+  padding: 4px 0;
+}
+
+.vault-hub-snippet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.vault-hub-snippet-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.vault-hub-snippet-name {
+  font-size: 0.85em;
+  font-family: var(--font-monospace);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-hub-snippet-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.vault-hub-snippet-actions button {
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 0.8em;
+  cursor: pointer;
+}
+
+.vault-hub-snippet-toggle {
+  color: var(--text-muted);
+}
+
+.vault-hub-snippet-toggle.on {
+  color: var(--text-success);
+  background: var(--background-modifier-success);
+}
+
+.vault-hub-snippet-delete {
+  color: var(--text-error);
+}
+
 /* Navigation */
 .vault-hub-nav {
   display: flex;

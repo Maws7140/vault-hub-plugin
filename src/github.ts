@@ -18,6 +18,10 @@ export class GitHubAPI {
     return res.json();
   }
 
+  private encodePath(path: string): string {
+    return path.split("/").map(encodeURIComponent).join("/");
+  }
+
   async getUser(): Promise<{ login: string; avatar_url: string }> {
     return this.request("/user");
   }
@@ -52,7 +56,7 @@ export class GitHubAPI {
     message: string
   ) {
     const encoded = btoa(unescape(encodeURIComponent(content)));
-    return this.request(`/repos/${owner}/${repo}/contents/${path}`, {
+    return this.request(`/repos/${owner}/${repo}/contents/${this.encodePath(path)}`, {
       method: "PUT",
       body: JSON.stringify({ message, content: encoded }),
     });
@@ -67,7 +71,7 @@ export class GitHubAPI {
     sha: string
   ) {
     const encoded = btoa(unescape(encodeURIComponent(content)));
-    return this.request(`/repos/${owner}/${repo}/contents/${path}`, {
+    return this.request(`/repos/${owner}/${repo}/contents/${this.encodePath(path)}`, {
       method: "PUT",
       body: JSON.stringify({ message, content: encoded, sha }),
     });
@@ -80,11 +84,52 @@ export class GitHubAPI {
   ): Promise<{ sha: string; content: string } | null> {
     try {
       const data = await this.request(
-        `/repos/${owner}/${repo}/contents/${path}`
+        `/repos/${owner}/${repo}/contents/${this.encodePath(path)}`
       );
-      return { sha: data.sha, content: atob(data.content) };
-    } catch {
-      return null;
+      return { sha: data.sha, content: decodeURIComponent(escape(atob(data.content.replace(/\s/g, "")))) };
+    } catch (error) {
+      if (String(error).includes("GitHub API 404")) return null;
+      throw error;
+    }
+  }
+
+  async listFilesRecursive(
+    owner: string,
+    repo: string
+  ): Promise<{ path: string; sha: string; download_url: string; type: string }[]> {
+    const data = await this.request(`/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`);
+    if (!Array.isArray(data.tree)) return [];
+
+    return data.tree
+      .filter((item: { path: string; type: string }) => item.type === "blob")
+      .map((item: { path: string; sha: string }) => ({
+        path: item.path,
+        sha: item.sha,
+        download_url: `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${this.encodePath(item.path)}`,
+        type: "file",
+      }));
+  }
+
+  async fileExists(owner: string, repo: string, path: string): Promise<boolean> {
+    return (await this.getFileContent(owner, repo, path)) !== null;
+  }
+
+  async getRepo(owner: string, repo: string): Promise<{ full_name: string }> {
+    return this.request(`/repos/${owner}/${repo}`);
+  }
+
+  async getAvailableRepoName(owner: string, baseName: string): Promise<string> {
+    let candidate = baseName;
+    let suffix = 2;
+    while (true) {
+      try {
+        await this.getRepo(owner, candidate);
+        candidate = `${baseName}-${suffix}`;
+        suffix++;
+      } catch (error) {
+        if (String(error).includes("GitHub API 404")) return candidate;
+        throw error;
+      }
     }
   }
 }

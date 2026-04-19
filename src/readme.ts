@@ -4,7 +4,7 @@ export interface ReadmeData {
   name: string;
   tagline: string;
   description: string;
-  type: "snippet" | "note" | "bundle";
+  type: "snippet" | "note";
   plugins: DetectedPlugin[];
   files: { path: string }[];
 }
@@ -56,7 +56,7 @@ export function generateReadme(data: ReadmeData): string {
 
   lines.push("");
   lines.push("---");
-  lines.push("*Published via [Vault Hub](https://vaulthub.dev)*");
+  lines.push("*Published via [Vault Hub](https://obsidianvaulthub.com)*");
   lines.push("");
 
   return lines.join("\n");

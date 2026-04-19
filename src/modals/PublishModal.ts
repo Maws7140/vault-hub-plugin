@@ -8,9 +8,9 @@ import {
   DropdownComponent,
 } from "obsidian";
 import type VaultHubPlugin from "../main";
-import { DetectedPlugin, detectPlugins, getInstalledPlugins } from "../detection";
+import { DetectedPlugin, detectPlugins } from "../detection";
 import { GitHubAPI } from "../github";
-import { generateHubYml, HubYmlData } from "../hubyml";
+import { generateHubMd, HubMdData } from "../hubmd";
 import { generateReadme, ReadmeData } from "../readme";
 
 type ResourceType = "snippet" | "note" | "bundle";
@@ -65,6 +65,10 @@ export class PublishModal extends Modal {
     this.contentEl.empty();
   }
 
+  private getPublishedType(): "snippet" | "note" {
+    return this.resourceType === "snippet" ? "snippet" : "note";
+  }
+
   private renderStep() {
     this.contentEl.empty();
     this.contentEl.addClass("vault-hub-modal");
@@ -94,8 +98,8 @@ export class PublishModal extends Modal {
       .setName("Resource Type")
       .addDropdown((dd: DropdownComponent) => {
         dd.addOption("snippet", "CSS Snippet");
-        dd.addOption("note", "Note / Template");
-        dd.addOption("bundle", "Bundle (multiple files)");
+        dd.addOption("note", "Note / Template / Dashboard");
+        dd.addOption("bundle", "Note Bundle (multiple files)");
         dd.setValue(this.resourceType);
         dd.onChange((v: string) => {
           this.resourceType = v as ResourceType;
@@ -149,9 +153,14 @@ export class PublishModal extends Modal {
 
     const loading = c.createDiv({ text: "Scanning..." });
 
-    const content = await this.app.vault.read(this.selectedFiles[0]);
     const fileType = this.resourceType === "snippet" ? "css" : "md";
-    this.allPlugins = await detectPlugins(content, fileType as "css" | "md", this.app.vault);
+    const detectedById = new Map<string, DetectedPlugin>();
+    for (const file of this.selectedFiles) {
+      const content = await this.app.vault.read(file);
+      const detected = await detectPlugins(content, fileType as "css" | "md", this.app.vault);
+      detected.forEach((plugin) => detectedById.set(plugin.id, plugin));
+    }
+    this.allPlugins = [...detectedById.values()];
 
     loading.remove();
 
@@ -245,9 +254,9 @@ export class PublishModal extends Modal {
         name: this.name,
         tagline: this.tagline,
         description: this.description,
-        type: this.resourceType,
+        type: this.getPublishedType(),
         plugins: selected,
-        files: this.selectedFiles.map((f) => ({ path: f.name })),
+        files: this.selectedFiles.map((f) => ({ path: f.path })),
       };
       this.readmeContent = generateReadme(readmeData);
       return true;
@@ -274,11 +283,12 @@ export class PublishModal extends Modal {
   private renderStep5() {
     const c = this.contentEl;
     c.createEl("h4", { text: "Review & Publish" });
+    const publishedType = this.getPublishedType();
 
     const summary = c.createDiv("vault-hub-summary");
-    summary.createEl("p", { text: `Type: ${this.resourceType}` });
+    summary.createEl("p", { text: `Type: ${publishedType}${this.resourceType === "bundle" ? " (multi-file)" : ""}` });
     summary.createEl("p", { text: `Name: ${this.name}` });
-    summary.createEl("p", { text: `Files: ${this.selectedFiles.map((f) => f.name).join(", ")}` });
+    summary.createEl("p", { text: `Files: ${this.selectedFiles.map((f) => f.path).join(", ")}` });
 
     const selPlugins = this.allPlugins.filter((p) => this.checkedPlugins.has(p.id));
     summary.createEl("p", {
@@ -313,12 +323,13 @@ export class PublishModal extends Modal {
     try {
       const gh = new GitHubAPI(token);
       const user = await gh.getUser();
+      const publishedType = this.getPublishedType();
 
       const slug = this.name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
-      const repoName = `obsidian-${this.resourceType}-${slug}`;
+        .replace(/^-|-$/g, "") || "resource";
+      const repoName = await gh.getAvailableRepoName(user.login, `obsidian-${publishedType}-${slug}`);
 
       status.setText("Creating repository...");
       const repo = await gh.createRepo(repoName, this.tagline || this.name);
@@ -328,20 +339,19 @@ export class PublishModal extends Modal {
       const topicMap: Record<string, string> = {
         snippet: "obsidian-css-snippet",
         note: "obsidian-note-template",
-        bundle: "obsidian-note-template",
       };
       status.setText("Adding topic tag...");
-      await gh.addTopics(owner, rName, [topicMap[this.resourceType]]);
+      await gh.addTopics(owner, rName, [topicMap[publishedType]]);
 
       // Upload resource files
       for (const file of this.selectedFiles) {
-        status.setText(`Uploading ${file.name}...`);
+        status.setText(`Uploading ${file.path}...`);
         const content = await this.app.vault.read(file);
-        await gh.createFile(owner, rName, file.name, content, `Add ${file.name}`);
+        await gh.createFile(owner, rName, file.path, content, `Add ${file.path}`);
       }
 
-      // Generate and upload hub.yml
-      status.setText("Generating hub.yml...");
+      // Generate and upload hub.md
+      status.setText("Generating hub.md...");
       const selectedPlugins = this.allPlugins
         .filter((p) => this.checkedPlugins.has(p.id))
         .map((p) => ({ ...p, autoDetected: true }));
@@ -349,8 +359,8 @@ export class PublishModal extends Modal {
       const obsVer = (this.app as unknown as { appVersion?: string }).appVersion || "unknown";
       const themeName = ((this.app.vault as unknown as { config?: { cssTheme?: string } }).config?.cssTheme) || "default";
 
-      const hubData: HubYmlData = {
-        type: this.resourceType,
+      const hubData: HubMdData = {
+        type: publishedType,
         name: this.name,
         tagline: this.tagline,
         description: this.description,
@@ -364,14 +374,15 @@ export class PublishModal extends Modal {
         theme: themeName,
         os: navigator.platform,
         files: this.selectedFiles.map((f) => ({
-          path: f.name,
+          path: f.path,
           type: f.extension,
           size: f.stat.size,
         })),
+        body: this.readmeContent,
       };
 
-      const hubYml = generateHubYml(hubData);
-      await gh.createFile(owner, rName, "hub.yml", hubYml, "Add hub.yml");
+      const hubMd = generateHubMd(hubData);
+      await gh.createFile(owner, rName, "hub.md", hubMd, "Add hub.md");
 
       // Upload README
       status.setText("Uploading README...");
@@ -381,7 +392,8 @@ export class PublishModal extends Modal {
       this.plugin.settings.publishedResources.push({
         repoFullName: repo.full_name,
         localFilePath: this.selectedFiles[0].path,
-        type: this.resourceType,
+        localFiles: this.selectedFiles.map((f) => f.path),
+        type: publishedType,
         lastPublishedAt: new Date().toISOString(),
       });
       await this.plugin.saveSettings();
@@ -390,15 +402,26 @@ export class PublishModal extends Modal {
       c.empty();
       c.createEl("h3", { text: "Published!" });
       c.createEl("p", { text: `Repository: ${repo.full_name}` });
+
+      const vaultHubUrl = `https://obsidianvaulthub.com/r/${owner}/${rName}`;
       const link = c.createEl("a", {
-        text: repo.html_url,
-        href: repo.html_url,
+        text: "View on Vault Hub",
+        href: vaultHubUrl,
+        cls: "mod-cta vault-hub-success-link",
       });
       link.setAttr("target", "_blank");
+
       c.createEl("p", {
-        text: "It will appear on Vault Hub within 6 hours.",
+        text: "It will appear after the next catalog refresh.",
         cls: "vault-hub-hint",
       });
+
+      const ghLink = c.createEl("a", {
+        text: "View on GitHub",
+        href: repo.html_url,
+        cls: "vault-hub-hint",
+      });
+      ghLink.setAttr("target", "_blank");
 
       const closeBtn = c.createEl("button", { text: "Close", cls: "mod-cta" });
       closeBtn.addEventListener("click", () => this.close());

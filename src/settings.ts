@@ -4,6 +4,7 @@ import type VaultHubPlugin from "./main";
 export interface PublishedResource {
   repoFullName: string;
   localFilePath: string;
+  localFiles?: string[];
   type: "snippet" | "note" | "bundle";
   lastPublishedAt: string;
 }
@@ -18,7 +19,7 @@ export interface VaultHubSettings {
 export const DEFAULT_SETTINGS: VaultHubSettings = {
   githubToken: "",
   defaultCategories: [],
-  vaultHubUrl: "http://localhost:3000",
+  vaultHubUrl: "https://obsidianvaulthub.com",
   publishedResources: [],
 };
 
@@ -55,10 +56,10 @@ export class VaultHubSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Vault Hub URL")
-      .setDesc("URL of the Vault Hub website (default: http://localhost:3000 for development).")
+      .setDesc("URL of the Vault Hub website.")
       .addText((text) =>
         text
-          .setPlaceholder("http://localhost:3000")
+          .setPlaceholder("https://obsidianvaulthub.com")
           .setValue(this.plugin.settings.vaultHubUrl)
           .onChange(async (value) => {
             this.plugin.settings.vaultHubUrl = value;

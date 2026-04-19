@@ -1,11 +1,22 @@
-import { App, Modal, Setting, Notice } from "obsidian";
+import { App, Modal, Setting, Notice, TFile } from "obsidian";
 import type VaultHubPlugin from "../main";
 import { PublishedResource } from "../settings";
 import { GitHubAPI } from "../github";
 
+type FileStatus = "changed" | "unchanged" | "not-found";
+
+interface FileEntry {
+  name: string;
+  githubSha?: string;
+  downloadUrl: string;
+  status: FileStatus;
+  localContent?: string;
+}
+
 export class UpdateModal extends Modal {
   plugin: VaultHubPlugin;
   selected: PublishedResource | null = null;
+  files: FileEntry[] = [];
 
   constructor(app: App, plugin: VaultHubPlugin) {
     super(app);
@@ -13,95 +24,200 @@ export class UpdateModal extends Modal {
   }
 
   onOpen() {
-    this.render();
+    this.renderSelect();
   }
 
   onClose() {
     this.contentEl.empty();
   }
 
-  private render() {
+  // ─── Step 1: select resource ───────────────────────────────
+
+  private renderSelect() {
     const c = this.contentEl;
     c.empty();
-    c.createEl("h2", { text: "Update Published Resource" });
+    c.addClass("vault-hub-modal");
+    c.createEl("h2", { text: "Update Resource" });
 
     const resources = this.plugin.settings.publishedResources;
     if (resources.length === 0) {
-      c.createEl("p", { text: "No published resources yet. Use Publish first." });
+      c.createEl("p", {
+        text: "No published resources yet — publish one first.",
+        cls: "vault-hub-hint",
+      });
       return;
     }
 
-    new Setting(c).setName("Select Resource").addDropdown((dd) => {
-      dd.addOption("", "Choose...");
+    new Setting(c).setName("Resource").addDropdown((dd) => {
+      dd.addOption("", "Select...");
       resources.forEach((r, i) => {
-        dd.addOption(String(i), `${r.repoFullName} (${r.type})`);
+        dd.addOption(String(i), `${r.repoFullName} (${r.type}) — ${timeAgo(new Date(r.lastPublishedAt))}`);
       });
       dd.onChange((v) => {
         this.selected = v ? resources[parseInt(v)] : null;
       });
     });
 
-    const updateBtn = c.createEl("button", { text: "Push Update", cls: "mod-cta" });
-    updateBtn.addEventListener("click", () => this.doUpdate());
+    const btn = c.createEl("button", { text: "Check for Changes", cls: "mod-cta" });
+    btn.style.marginTop = "12px";
+    btn.addEventListener("click", async () => {
+      if (!this.selected) { new Notice("Select a resource first"); return; }
+      if (!this.plugin.settings.githubToken) { new Notice("Set your GitHub token in settings"); return; }
+      await this.loadDiff(btn);
+    });
   }
 
-  private async doUpdate() {
-    if (!this.selected) {
-      new Notice("Select a resource first");
-      return;
-    }
+  // ─── Step 2: diff ─────────────────────────────────────────
+
+  private async loadDiff(triggerBtn: HTMLButtonElement) {
+    triggerBtn.disabled = true;
+    triggerBtn.setText("Checking...");
 
     const token = this.plugin.settings.githubToken;
-    if (!token) {
-      new Notice("Set your GitHub token in settings first");
-      return;
-    }
-
-    const c = this.contentEl;
-    c.empty();
-    c.createEl("h3", { text: "Updating..." });
+    const [owner, repo] = this.selected!.repoFullName.split("/");
 
     try {
       const gh = new GitHubAPI(token);
-      const [owner, repo] = this.selected.repoFullName.split("/");
+      const localPaths = this.selected!.localFiles || [this.selected!.localFilePath];
 
-      // Read current local file
-      const file = this.app.vault.getAbstractFileByPath(this.selected.localFilePath);
-      if (!file) {
-        new Notice(`File not found: ${this.selected.localFilePath}`);
-        return;
+      this.files = [];
+
+      for (const vaultPath of localPaths) {
+        if (!vaultPath.match(/\.(md|css|yml|yaml|js|json|txt|canvas)$/i)) continue;
+        const entry: FileEntry = {
+          name: vaultPath,
+          downloadUrl: "",
+          status: "not-found",
+        };
+
+        const tfile = this.app.vault.getAbstractFileByPath(vaultPath);
+        if (tfile instanceof TFile) {
+          const local = await this.app.vault.read(tfile);
+          const remote = await gh.getFileContent(owner, repo, vaultPath);
+          entry.localContent = local;
+          entry.githubSha = remote?.sha;
+          entry.status = !remote || local !== remote.content ? "changed" : "unchanged";
+        }
+
+        this.files.push(entry);
       }
 
-      const content = await this.app.vault.read(file as import("obsidian").TFile);
+      this.renderDiff();
+    } catch (e) {
+      new Notice(`Error: ${e}`);
+      triggerBtn.disabled = false;
+      triggerBtn.setText("Check for Changes");
+    }
+  }
 
-      // Get existing file SHA from GitHub
-      const existing = await gh.getFileContent(owner, repo, file.name);
+  private renderDiff() {
+    const c = this.contentEl;
+    c.empty();
+    c.createEl("h2", { text: "Review Changes" });
+    c.createEl("p", { text: this.selected!.repoFullName, cls: "vault-hub-hint" });
 
-      if (existing) {
-        await gh.updateFile(
-          owner, repo, file.name, content,
-          `Update ${file.name}`, existing.sha
-        );
-      } else {
-        await gh.createFile(owner, repo, file.name, content, `Add ${file.name}`);
+    const changed = this.files.filter((f) => f.status === "changed");
+    const unchanged = this.files.filter((f) => f.status === "unchanged");
+    const notFound = this.files.filter((f) => f.status === "not-found");
+
+    const list = c.createDiv("vault-hub-update-list");
+
+    changed.forEach((f) => {
+      const row = list.createDiv("vault-hub-update-row");
+      row.createSpan({ text: "~ ", cls: "vault-hub-status-changed" });
+      row.createSpan({ text: f.name });
+      row.createSpan({ text: " modified", cls: "vault-hub-hint" });
+    });
+
+    unchanged.forEach((f) => {
+      const row = list.createDiv("vault-hub-update-row");
+      row.createSpan({ text: "= ", cls: "vault-hub-status-unchanged" });
+      row.createSpan({ text: f.name });
+      row.createSpan({ text: " up to date", cls: "vault-hub-hint" });
+    });
+
+    notFound.forEach((f) => {
+      const row = list.createDiv("vault-hub-update-row");
+      row.createSpan({ text: "? ", cls: "vault-hub-status-missing" });
+      row.createSpan({ text: f.name });
+      row.createSpan({ text: " not found locally", cls: "vault-hub-hint" });
+    });
+
+    const nav = c.createDiv("vault-hub-nav");
+    const backBtn = nav.createEl("button", { text: "Back" });
+    backBtn.addEventListener("click", () => this.renderSelect());
+
+    if (changed.length === 0) {
+      c.createEl("p", { text: "Everything is up to date.", cls: "vault-hub-hint" });
+    } else {
+      const pushBtn = nav.createEl("button", {
+        text: `Push ${changed.length} Change${changed.length !== 1 ? "s" : ""}`,
+        cls: "mod-cta",
+      });
+      pushBtn.addEventListener("click", () => this.doPush(changed));
+    }
+  }
+
+  // ─── Step 3: push ─────────────────────────────────────────
+
+  private async doPush(toUpdate: FileEntry[]) {
+    const c = this.contentEl;
+    c.empty();
+    const statusEl = c.createEl("p", { text: "Pushing...", cls: "vault-hub-hint" });
+
+    const token = this.plugin.settings.githubToken;
+    const gh = new GitHubAPI(token);
+    const [owner, repo] = this.selected!.repoFullName.split("/");
+
+    try {
+      let pushed = 0;
+      for (const f of toUpdate) {
+        statusEl.setText(`Pushing ${f.name}...`);
+        const existing = await gh.getFileContent(owner, repo, f.name);
+        if (existing) {
+          await gh.updateFile(owner, repo, f.name, f.localContent!, `Update ${f.name}`, existing.sha);
+        } else {
+          await gh.createFile(owner, repo, f.name, f.localContent!, `Add ${f.name}`);
+        }
+        pushed++;
       }
 
-      // Update timestamp
-      this.selected.lastPublishedAt = new Date().toISOString();
+      this.selected!.lastPublishedAt = new Date().toISOString();
       await this.plugin.saveSettings();
 
       c.empty();
       c.createEl("h3", { text: "Updated!" });
-      c.createEl("p", { text: `Pushed to ${this.selected.repoFullName}` });
+      c.createEl("p", { text: `Pushed ${pushed} file(s) to ${this.selected!.repoFullName}` });
 
-      const closeBtn = c.createEl("button", { text: "Close", cls: "mod-cta" });
+      const [rOwner, rName] = this.selected!.repoFullName.split("/");
+      const link = c.createEl("a", {
+        text: "View on Vault Hub",
+        href: `https://obsidianvaulthub.com/r/${rOwner}/${rName}`,
+        cls: "mod-cta vault-hub-success-link",
+      });
+      link.setAttr("target", "_blank");
+
+      const closeBtn = c.createEl("button", { text: "Close" });
+      closeBtn.style.marginTop = "12px";
       closeBtn.addEventListener("click", () => this.close());
 
-      new Notice("Resource updated!");
+      new Notice(`Pushed ${pushed} file(s)!`);
     } catch (e) {
       c.empty();
       c.createEl("h3", { text: "Error" });
       c.createEl("p", { text: String(e) });
+      const retryBtn = c.createEl("button", { text: "Back" });
+      retryBtn.addEventListener("click", () => this.renderDiff());
     }
   }
+}
+
+function timeAgo(date: Date): string {
+  const s = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
