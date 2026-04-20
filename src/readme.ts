@@ -4,7 +4,7 @@ export interface ReadmeData {
   name: string;
   tagline: string;
   description: string;
-  type: "snippet" | "note";
+  type: "snippet" | "note" | "vault";
   plugins: DetectedPlugin[];
   files: { path: string }[];
 }
@@ -46,6 +46,12 @@ export function generateReadme(data: ReadmeData): string {
       "2. Place it in your vault's `.obsidian/snippets/` folder"
     );
     lines.push("3. Enable it in Settings > Appearance > CSS Snippets");
+  } else if (data.type === "vault") {
+    lines.push("1. Download or clone this repo");
+    lines.push("2. Open the folder as an Obsidian vault");
+    if (selected.length > 0) {
+      lines.push("3. Install or enable the required plugins listed above");
+    }
   } else {
     lines.push("1. Download the `.md` file(s) from this repo");
     lines.push("2. Place them in your vault");

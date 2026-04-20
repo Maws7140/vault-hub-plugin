@@ -14,18 +14,21 @@ import { generateHubMd, HubMdData } from "../hubmd";
 import { generateReadme, ReadmeData } from "../readme";
 
 type ResourceType = "snippet" | "note" | "bundle";
+type PublishedType = "snippet" | "note" | "vault";
 
 const CATEGORIES: Record<string, string[]> = {
   snippet: [
-    "ui-tweak", "theme-override", "layout", "typography",
-    "color-scheme", "editor", "sidebar", "publishing",
+    "ui-tweak", "layout", "typography", "colors",
+    "editor", "sidebar", "dashboard", "starter",
   ],
   note: [
     "dashboard", "tracker", "query", "daily-note",
-    "project-template", "kanban", "database", "automation",
+    "project-template", "kanban", "book-notes", "habit-tracker",
   ],
   bundle: [
-    "dashboard", "tracker", "query", "project-template", "automation",
+    "starter", "student", "developer", "writer",
+    "researcher", "pkm", "project-management", "worldbuilding",
+    "journaling", "dashboard", "tracker", "finance",
   ],
 };
 
@@ -65,8 +68,10 @@ export class PublishModal extends Modal {
     this.contentEl.empty();
   }
 
-  private getPublishedType(): "snippet" | "note" {
-    return this.resourceType === "snippet" ? "snippet" : "note";
+  private getPublishedType(): PublishedType {
+    if (this.resourceType === "snippet") return "snippet";
+    if (this.resourceType === "bundle") return "vault";
+    return "note";
   }
 
   private renderStep() {
@@ -99,7 +104,7 @@ export class PublishModal extends Modal {
       .addDropdown((dd: DropdownComponent) => {
         dd.addOption("snippet", "CSS Snippet");
         dd.addOption("note", "Note / Template / Dashboard");
-        dd.addOption("bundle", "Note Bundle (multiple files)");
+        dd.addOption("bundle", "Vault / Multi-file Template");
         dd.setValue(this.resourceType);
         dd.onChange((v: string) => {
           this.resourceType = v as ResourceType;
@@ -337,6 +342,7 @@ export class PublishModal extends Modal {
 
       // Topic tag
       const topicMap: Record<string, string> = {
+        vault: "obsidian-vault-template",
         snippet: "obsidian-css-snippet",
         note: "obsidian-note-template",
       };

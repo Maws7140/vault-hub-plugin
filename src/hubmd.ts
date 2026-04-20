@@ -1,7 +1,7 @@
 import { DetectedPlugin } from "./detection";
 
 export interface HubMdData {
-  type: "snippet" | "note";
+  type: "snippet" | "note" | "vault";
   name: string;
   tagline: string;
   description: string;

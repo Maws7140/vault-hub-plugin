@@ -5,7 +5,7 @@ export interface PublishedResource {
   repoFullName: string;
   localFilePath: string;
   localFiles?: string[];
-  type: "snippet" | "note" | "bundle";
+  type: "snippet" | "note" | "vault" | "bundle";
   lastPublishedAt: string;
 }
 

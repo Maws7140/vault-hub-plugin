@@ -330,6 +330,12 @@ function generateReadme(data) {
       "2. Place it in your vault's `.obsidian/snippets/` folder"
     );
     lines.push("3. Enable it in Settings > Appearance > CSS Snippets");
+  } else if (data.type === "vault") {
+    lines.push("1. Download or clone this repo");
+    lines.push("2. Open the folder as an Obsidian vault");
+    if (selected.length > 0) {
+      lines.push("3. Install or enable the required plugins listed above");
+    }
   } else {
     lines.push("1. Download the `.md` file(s) from this repo");
     lines.push("2. Place them in your vault");
@@ -348,13 +354,13 @@ function generateReadme(data) {
 var CATEGORIES = {
   snippet: [
     "ui-tweak",
-    "theme-override",
     "layout",
     "typography",
-    "color-scheme",
+    "colors",
     "editor",
     "sidebar",
-    "publishing"
+    "dashboard",
+    "starter"
   ],
   note: [
     "dashboard",
@@ -363,15 +369,22 @@ var CATEGORIES = {
     "daily-note",
     "project-template",
     "kanban",
-    "database",
-    "automation"
+    "book-notes",
+    "habit-tracker"
   ],
   bundle: [
+    "starter",
+    "student",
+    "developer",
+    "writer",
+    "researcher",
+    "pkm",
+    "project-management",
+    "worldbuilding",
+    "journaling",
     "dashboard",
     "tracker",
-    "query",
-    "project-template",
-    "automation"
+    "finance"
   ]
 };
 var PublishModal = class extends import_obsidian2.Modal {
@@ -402,7 +415,11 @@ var PublishModal = class extends import_obsidian2.Modal {
     this.contentEl.empty();
   }
   getPublishedType() {
-    return this.resourceType === "snippet" ? "snippet" : "note";
+    if (this.resourceType === "snippet")
+      return "snippet";
+    if (this.resourceType === "bundle")
+      return "vault";
+    return "note";
   }
   renderStep() {
     this.contentEl.empty();
@@ -440,7 +457,7 @@ var PublishModal = class extends import_obsidian2.Modal {
     new import_obsidian2.Setting(c).setName("Resource Type").addDropdown((dd) => {
       dd.addOption("snippet", "CSS Snippet");
       dd.addOption("note", "Note / Template / Dashboard");
-      dd.addOption("bundle", "Note Bundle (multiple files)");
+      dd.addOption("bundle", "Vault / Multi-file Template");
       dd.setValue(this.resourceType);
       dd.onChange((v) => {
         this.resourceType = v;
@@ -639,6 +656,7 @@ var PublishModal = class extends import_obsidian2.Modal {
       const repo = await gh.createRepo(repoName, this.tagline || this.name);
       const [owner, rName] = repo.full_name.split("/");
       const topicMap = {
+        vault: "obsidian-vault-template",
         snippet: "obsidian-css-snippet",
         note: "obsidian-note-template"
       };
