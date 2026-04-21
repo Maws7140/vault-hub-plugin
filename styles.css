@@ -119,6 +119,25 @@
   background: var(--text-success);
 }
 
+/* Bulk controls */
+.vault-hub-bulk {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.vault-hub-bulk button {
+  padding: 4px 10px;
+  font-size: 0.85em;
+}
+
+.vault-hub-bulk-count {
+  margin-left: auto;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
 /* File List */
 .vault-hub-file-list {
   max-height: 300px;

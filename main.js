@@ -351,6 +351,47 @@ function generateReadme(data) {
 }
 
 // src/modals/PublishModal.ts
+function tfileToPublishFile(app, f) {
+  return {
+    path: f.path,
+    name: f.name,
+    extension: f.extension,
+    size: f.stat.size,
+    read: () => app.vault.read(f)
+  };
+}
+async function listSnippetFiles(app) {
+  const adapter = app.vault.adapter;
+  const dir = ".obsidian/snippets";
+  try {
+    const exists = await adapter.exists(dir);
+    if (!exists)
+      return [];
+    const { files } = await adapter.list(dir);
+    const cssFiles = files.filter((p) => p.toLowerCase().endsWith(".css"));
+    return Promise.all(
+      cssFiles.map(async (path) => {
+        var _a;
+        const name = path.split("/").pop() || path;
+        let size = 0;
+        try {
+          const stat = await adapter.stat(path);
+          size = (_a = stat == null ? void 0 : stat.size) != null ? _a : 0;
+        } catch (e) {
+        }
+        return {
+          path,
+          name,
+          extension: "css",
+          size,
+          read: () => adapter.read(path)
+        };
+      })
+    );
+  } catch (e) {
+    return [];
+  }
+}
 var CATEGORIES = {
   snippet: [
     "ui-tweak",
@@ -452,7 +493,7 @@ var PublishModal = class extends import_obsidian2.Modal {
         break;
     }
   }
-  renderStep1() {
+  async renderStep1() {
     const c = this.contentEl;
     new import_obsidian2.Setting(c).setName("Resource Type").addDropdown((dd) => {
       dd.addOption("snippet", "CSS Snippet");
@@ -465,22 +506,52 @@ var PublishModal = class extends import_obsidian2.Modal {
         this.renderStep();
       });
     });
-    const ext = this.resourceType === "snippet" ? ".css" : ".md";
-    const files = this.app.vault.getFiles().filter((f) => f.extension === ext.slice(1)).sort((a, b) => a.path.localeCompare(b.path));
+    const files = await this.collectCandidateFiles();
     const fileSection = c.createDiv();
-    fileSection.createEl("h4", { text: `Select file${this.resourceType === "bundle" ? "s" : ""}` });
+    const isBundle = this.resourceType === "bundle";
+    fileSection.createEl("h4", { text: `Select file${isBundle ? "s" : ""}` });
+    if (this.resourceType === "snippet") {
+      fileSection.createEl("p", {
+        text: "Sourced from .obsidian/snippets. Drop .css files there if nothing shows up.",
+        cls: "vault-hub-hint"
+      });
+    }
+    if (files.length === 0) {
+      fileSection.createEl("p", {
+        text: this.resourceType === "snippet" ? "No CSS snippets found in .obsidian/snippets." : this.resourceType === "bundle" ? "No markdown files found in this vault." : "No markdown files found in this vault.",
+        cls: "vault-hub-hint"
+      });
+    }
+    if (isBundle && files.length > 0) {
+      const bulk = fileSection.createDiv("vault-hub-bulk");
+      const selectAll = bulk.createEl("button", { text: "Select all" });
+      selectAll.type = "button";
+      selectAll.addEventListener("click", () => {
+        this.selectedFiles = files.slice();
+        this.renderStep();
+      });
+      const clearAll = bulk.createEl("button", { text: "Clear" });
+      clearAll.type = "button";
+      clearAll.addEventListener("click", () => {
+        this.selectedFiles = [];
+        this.renderStep();
+      });
+      const count = bulk.createSpan({ cls: "vault-hub-bulk-count" });
+      count.setText(`${this.selectedFiles.length} / ${files.length} selected`);
+    }
     const list = fileSection.createDiv("vault-hub-file-list");
+    const selectedPaths = new Set(this.selectedFiles.map((f) => f.path));
     files.forEach((f) => {
       const row = list.createDiv("vault-hub-file-row");
-      const cb = row.createEl("input", { type: this.resourceType === "bundle" ? "checkbox" : "radio" });
+      const cb = row.createEl("input", { type: isBundle ? "checkbox" : "radio" });
       cb.name = "vault-hub-file";
-      cb.checked = this.selectedFiles.includes(f);
+      cb.checked = selectedPaths.has(f.path);
       cb.addEventListener("change", () => {
-        if (this.resourceType === "bundle") {
+        if (isBundle) {
           if (cb.checked)
             this.selectedFiles.push(f);
           else
-            this.selectedFiles = this.selectedFiles.filter((x) => x !== f);
+            this.selectedFiles = this.selectedFiles.filter((x) => x.path !== f.path);
         } else {
           this.selectedFiles = cb.checked ? [f] : [];
         }
@@ -495,6 +566,13 @@ var PublishModal = class extends import_obsidian2.Modal {
       return true;
     });
   }
+  async collectCandidateFiles() {
+    if (this.resourceType === "snippet") {
+      const snippets = await listSnippetFiles(this.app);
+      return snippets.sort((a, b) => a.path.localeCompare(b.path));
+    }
+    return this.app.vault.getFiles().filter((f) => f.extension === "md").sort((a, b) => a.path.localeCompare(b.path)).map((f) => tfileToPublishFile(this.app, f));
+  }
   async renderStep2() {
     const c = this.contentEl;
     c.createEl("h4", { text: "Select Required Plugins" });
@@ -506,7 +584,7 @@ var PublishModal = class extends import_obsidian2.Modal {
     const fileType = this.resourceType === "snippet" ? "css" : "md";
     const detectedById = /* @__PURE__ */ new Map();
     for (const file of this.selectedFiles) {
-      const content = await this.app.vault.read(file);
+      const content = await file.read();
       const detected = await detectPlugins(content, fileType, this.app.vault);
       detected.forEach((plugin) => detectedById.set(plugin.id, plugin));
     }
@@ -664,7 +742,7 @@ var PublishModal = class extends import_obsidian2.Modal {
       await gh.addTopics(owner, rName, [topicMap[publishedType]]);
       for (const file of this.selectedFiles) {
         status.setText(`Uploading ${file.path}...`);
-        const content = await this.app.vault.read(file);
+        const content = await file.read();
         await gh.createFile(owner, rName, file.path, content, `Add ${file.path}`);
       }
       status.setText("Generating hub.md...");
@@ -688,7 +766,7 @@ var PublishModal = class extends import_obsidian2.Modal {
         files: this.selectedFiles.map((f) => ({
           path: f.path,
           type: f.extension,
-          size: f.stat.size
+          size: f.size
         })),
         body: this.readmeContent
       };

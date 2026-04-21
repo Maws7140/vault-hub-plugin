@@ -16,6 +16,56 @@ import { generateReadme, ReadmeData } from "../readme";
 type ResourceType = "snippet" | "note" | "bundle";
 type PublishedType = "snippet" | "note" | "vault";
 
+interface PublishFile {
+  path: string;
+  name: string;
+  extension: string;
+  size: number;
+  read: () => Promise<string>;
+}
+
+function tfileToPublishFile(app: App, f: TFile): PublishFile {
+  return {
+    path: f.path,
+    name: f.name,
+    extension: f.extension,
+    size: f.stat.size,
+    read: () => app.vault.read(f),
+  };
+}
+
+async function listSnippetFiles(app: App): Promise<PublishFile[]> {
+  const adapter = app.vault.adapter;
+  const dir = ".obsidian/snippets";
+  try {
+    const exists = await adapter.exists(dir);
+    if (!exists) return [];
+    const { files } = await adapter.list(dir);
+    const cssFiles = files.filter((p) => p.toLowerCase().endsWith(".css"));
+    return Promise.all(
+      cssFiles.map(async (path) => {
+        const name = path.split("/").pop() || path;
+        let size = 0;
+        try {
+          const stat = await adapter.stat(path);
+          size = stat?.size ?? 0;
+        } catch {
+          // ignore stat errors
+        }
+        return {
+          path,
+          name,
+          extension: "css",
+          size,
+          read: () => adapter.read(path),
+        };
+      })
+    );
+  } catch {
+    return [];
+  }
+}
+
 const CATEGORIES: Record<string, string[]> = {
   snippet: [
     "ui-tweak", "layout", "typography", "colors",
@@ -38,7 +88,7 @@ export class PublishModal extends Modal {
 
   // Step 1
   resourceType: ResourceType = "snippet";
-  selectedFiles: TFile[] = [];
+  selectedFiles: PublishFile[] = [];
 
   // Step 2
   allPlugins: DetectedPlugin[] = [];
@@ -96,7 +146,7 @@ export class PublishModal extends Modal {
     }
   }
 
-  private renderStep1() {
+  private async renderStep1() {
     const c = this.contentEl;
 
     new Setting(c)
@@ -113,25 +163,60 @@ export class PublishModal extends Modal {
         });
       });
 
-    const ext = this.resourceType === "snippet" ? ".css" : ".md";
-    const files = this.app.vault
-      .getFiles()
-      .filter((f: TFile) => f.extension === ext.slice(1))
-      .sort((a: TFile, b: TFile) => a.path.localeCompare(b.path));
+    const files = await this.collectCandidateFiles();
 
     const fileSection = c.createDiv();
-    fileSection.createEl("h4", { text: `Select file${this.resourceType === "bundle" ? "s" : ""}` });
+    const isBundle = this.resourceType === "bundle";
+    fileSection.createEl("h4", { text: `Select file${isBundle ? "s" : ""}` });
+
+    if (this.resourceType === "snippet") {
+      fileSection.createEl("p", {
+        text: "Sourced from .obsidian/snippets. Drop .css files there if nothing shows up.",
+        cls: "vault-hub-hint",
+      });
+    }
+
+    if (files.length === 0) {
+      fileSection.createEl("p", {
+        text:
+          this.resourceType === "snippet"
+            ? "No CSS snippets found in .obsidian/snippets."
+            : this.resourceType === "bundle"
+            ? "No markdown files found in this vault."
+            : "No markdown files found in this vault.",
+        cls: "vault-hub-hint",
+      });
+    }
+
+    if (isBundle && files.length > 0) {
+      const bulk = fileSection.createDiv("vault-hub-bulk");
+      const selectAll = bulk.createEl("button", { text: "Select all" });
+      selectAll.type = "button";
+      selectAll.addEventListener("click", () => {
+        this.selectedFiles = files.slice();
+        this.renderStep();
+      });
+      const clearAll = bulk.createEl("button", { text: "Clear" });
+      clearAll.type = "button";
+      clearAll.addEventListener("click", () => {
+        this.selectedFiles = [];
+        this.renderStep();
+      });
+      const count = bulk.createSpan({ cls: "vault-hub-bulk-count" });
+      count.setText(`${this.selectedFiles.length} / ${files.length} selected`);
+    }
 
     const list = fileSection.createDiv("vault-hub-file-list");
-    files.forEach((f: TFile) => {
+    const selectedPaths = new Set(this.selectedFiles.map((f) => f.path));
+    files.forEach((f) => {
       const row = list.createDiv("vault-hub-file-row");
-      const cb = row.createEl("input", { type: this.resourceType === "bundle" ? "checkbox" : "radio" });
+      const cb = row.createEl("input", { type: isBundle ? "checkbox" : "radio" });
       cb.name = "vault-hub-file";
-      cb.checked = this.selectedFiles.includes(f);
+      cb.checked = selectedPaths.has(f.path);
       cb.addEventListener("change", () => {
-        if (this.resourceType === "bundle") {
+        if (isBundle) {
           if (cb.checked) this.selectedFiles.push(f);
-          else this.selectedFiles = this.selectedFiles.filter((x) => x !== f);
+          else this.selectedFiles = this.selectedFiles.filter((x) => x.path !== f.path);
         } else {
           this.selectedFiles = cb.checked ? [f] : [];
         }
@@ -148,6 +233,18 @@ export class PublishModal extends Modal {
     });
   }
 
+  private async collectCandidateFiles(): Promise<PublishFile[]> {
+    if (this.resourceType === "snippet") {
+      const snippets = await listSnippetFiles(this.app);
+      return snippets.sort((a, b) => a.path.localeCompare(b.path));
+    }
+    return this.app.vault
+      .getFiles()
+      .filter((f: TFile) => f.extension === "md")
+      .sort((a: TFile, b: TFile) => a.path.localeCompare(b.path))
+      .map((f) => tfileToPublishFile(this.app, f));
+  }
+
   private async renderStep2() {
     const c = this.contentEl;
     c.createEl("h4", { text: "Select Required Plugins" });
@@ -161,7 +258,7 @@ export class PublishModal extends Modal {
     const fileType = this.resourceType === "snippet" ? "css" : "md";
     const detectedById = new Map<string, DetectedPlugin>();
     for (const file of this.selectedFiles) {
-      const content = await this.app.vault.read(file);
+      const content = await file.read();
       const detected = await detectPlugins(content, fileType as "css" | "md", this.app.vault);
       detected.forEach((plugin) => detectedById.set(plugin.id, plugin));
     }
@@ -352,7 +449,7 @@ export class PublishModal extends Modal {
       // Upload resource files
       for (const file of this.selectedFiles) {
         status.setText(`Uploading ${file.path}...`);
-        const content = await this.app.vault.read(file);
+        const content = await file.read();
         await gh.createFile(owner, rName, file.path, content, `Add ${file.path}`);
       }
 
@@ -382,7 +479,7 @@ export class PublishModal extends Modal {
         files: this.selectedFiles.map((f) => ({
           path: f.path,
           type: f.extension,
-          size: f.stat.size,
+          size: f.size,
         })),
         body: this.readmeContent,
       };
