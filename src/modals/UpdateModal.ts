@@ -1,12 +1,14 @@
 import { App, Modal, Setting, Notice, TFile } from "obsidian";
 import type VaultHubPlugin from "../main";
-import { PublishedResource } from "../settings";
+import { PublishedFileMapping, PublishedResource } from "../settings";
 import { GitHubAPI } from "../github";
 
 type FileStatus = "changed" | "unchanged" | "not-found";
 
 interface FileEntry {
   name: string;
+  localPath: string;
+  repoPath: string;
   githubSha?: string;
   downloadUrl: string;
   status: FileStatus;
@@ -78,22 +80,23 @@ export class UpdateModal extends Modal {
 
     try {
       const gh = new GitHubAPI(token);
-      const localPaths = this.selected!.localFiles || [this.selected!.localFilePath];
+      const fileMappings = this.getFileMappings(this.selected!);
 
       this.files = [];
 
-      for (const vaultPath of localPaths) {
-        if (!vaultPath.match(/\.(md|css|yml|yaml|js|json|txt|canvas)$/i)) continue;
+      for (const mapping of fileMappings) {
+        if (!mapping.localPath.match(/\.(md|css|yml|yaml|js|json|txt|canvas)$/i)) continue;
         const entry: FileEntry = {
-          name: vaultPath,
+          name: mapping.repoPath,
+          localPath: mapping.localPath,
+          repoPath: mapping.repoPath,
           downloadUrl: "",
           status: "not-found",
         };
 
-        const tfile = this.app.vault.getAbstractFileByPath(vaultPath);
-        if (tfile instanceof TFile) {
-          const local = await this.app.vault.read(tfile);
-          const remote = await gh.getFileContent(owner, repo, vaultPath);
+        const local = await this.readLocalContent(mapping.localPath);
+        if (local !== null) {
+          const remote = await gh.getFileContent(owner, repo, mapping.repoPath);
           entry.localContent = local;
           entry.githubSha = remote?.sha;
           entry.status = !remote || local !== remote.content ? "changed" : "unchanged";
@@ -173,11 +176,11 @@ export class UpdateModal extends Modal {
       let pushed = 0;
       for (const f of toUpdate) {
         statusEl.setText(`Pushing ${f.name}...`);
-        const existing = await gh.getFileContent(owner, repo, f.name);
+        const existing = await gh.getFileContent(owner, repo, f.repoPath);
         if (existing) {
-          await gh.updateFile(owner, repo, f.name, f.localContent!, `Update ${f.name}`, existing.sha);
+          await gh.updateFile(owner, repo, f.repoPath, f.localContent!, `Update ${f.repoPath}`, existing.sha);
         } else {
-          await gh.createFile(owner, repo, f.name, f.localContent!, `Add ${f.name}`);
+          await gh.createFile(owner, repo, f.repoPath, f.localContent!, `Add ${f.repoPath}`);
         }
         pushed++;
       }
@@ -185,9 +188,30 @@ export class UpdateModal extends Modal {
       this.selected!.lastPublishedAt = new Date().toISOString();
       await this.plugin.saveSettings();
 
+      let refreshRequested = false;
+      const catalogRepo = this.plugin.settings.catalogRepoFullName.trim();
+      if (catalogRepo.includes("/")) {
+        const [catalogOwner, catalogName] = catalogRepo.split("/");
+        try {
+          await gh.dispatchRepositoryEvent(catalogOwner, catalogName, "catalog_refresh", {
+            source_repo: this.selected!.repoFullName,
+            update: true,
+          });
+          refreshRequested = true;
+        } catch {
+          refreshRequested = false;
+        }
+      }
+
       c.empty();
       c.createEl("h3", { text: "Updated!" });
       c.createEl("p", { text: `Pushed ${pushed} file(s) to ${this.selected!.repoFullName}` });
+      c.createEl("p", {
+        text: refreshRequested
+          ? "Catalog refresh requested."
+          : "Catalog refresh was not requested automatically.",
+        cls: "vault-hub-hint",
+      });
 
       const [rOwner, rName] = this.selected!.repoFullName.split("/");
       const link = c.createEl("a", {
@@ -209,6 +233,31 @@ export class UpdateModal extends Modal {
       const retryBtn = c.createEl("button", { text: "Back" });
       retryBtn.addEventListener("click", () => this.renderDiff());
     }
+  }
+
+  private getFileMappings(resource: PublishedResource): PublishedFileMapping[] {
+    if (resource.fileMappings?.length) return resource.fileMappings;
+    const localFiles = resource.localFiles || [resource.localFilePath];
+    return localFiles.map((path) => ({
+      localPath: path,
+      repoPath: path,
+      kind: "resource",
+    }));
+  }
+
+  private async readLocalContent(path: string): Promise<string | null> {
+    const tfile = this.app.vault.getAbstractFileByPath(path);
+    if (tfile instanceof TFile) {
+      return this.app.vault.read(tfile);
+    }
+    try {
+      if (await this.app.vault.adapter.exists(path)) {
+        return await this.app.vault.adapter.read(path);
+      }
+    } catch {
+      // fall through
+    }
+    return null;
   }
 }
 

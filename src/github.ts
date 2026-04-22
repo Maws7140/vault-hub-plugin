@@ -62,6 +62,19 @@ export class GitHubAPI {
     });
   }
 
+  async createBinaryFile(
+    owner: string,
+    repo: string,
+    path: string,
+    base64Content: string,
+    message: string
+  ) {
+    return this.request(`/repos/${owner}/${repo}/contents/${this.encodePath(path)}`, {
+      method: "PUT",
+      body: JSON.stringify({ message, content: base64Content, encoding: "base64" }),
+    });
+  }
+
   async updateFile(
     owner: string,
     repo: string,
@@ -131,5 +144,15 @@ export class GitHubAPI {
         throw error;
       }
     }
+  }
+
+  async dispatchRepositoryEvent(owner: string, repo: string, eventType: string, clientPayload?: unknown) {
+    return this.request(`/repos/${owner}/${repo}/dispatches`, {
+      method: "POST",
+      body: JSON.stringify({
+        event_type: eventType,
+        client_payload: clientPayload || {},
+      }),
+    });
   }
 }

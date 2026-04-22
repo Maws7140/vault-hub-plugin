@@ -7,6 +7,7 @@ export interface ReadmeData {
   type: "snippet" | "note" | "vault";
   plugins: DetectedPlugin[];
   files: { path: string }[];
+  attachedSnippets: { path: string; name?: string; optional?: boolean }[];
 }
 
 export function generateReadme(data: ReadmeData): string {
@@ -22,6 +23,7 @@ export function generateReadme(data: ReadmeData): string {
   lines.push("");
 
   const selected = data.plugins.filter((p) => p.autoDetected);
+  const attachedSnippets = data.attachedSnippets || [];
   if (selected.length > 0) {
     lines.push("## Required Plugins");
     lines.push("");
@@ -30,6 +32,17 @@ export function generateReadme(data: ReadmeData): string {
     selected.forEach((p) => {
       lines.push(
         `| ${p.name} | ${p.version} | [GitHub](https://github.com/search?q=${encodeURIComponent(p.name + " obsidian")}) |`
+      );
+    });
+    lines.push("");
+  }
+
+  if (attachedSnippets.length > 0) {
+    lines.push("## Attached Snippets");
+    lines.push("");
+    attachedSnippets.forEach((snippet) => {
+      lines.push(
+        `- \`${snippet.path}\`${snippet.optional ? " (optional)" : ""}${snippet.name ? ` — ${snippet.name}` : ""}`
       );
     });
     lines.push("");
@@ -55,7 +68,13 @@ export function generateReadme(data: ReadmeData): string {
   } else {
     lines.push("1. Download the `.md` file(s) from this repo");
     lines.push("2. Place them in your vault");
-    if (selected.length > 0) {
+    if (attachedSnippets.length > 0) {
+      lines.push("3. Copy the attached CSS snippet files into `.obsidian/snippets/`");
+      lines.push("4. Enable them in Settings > Appearance > CSS Snippets");
+      if (selected.length > 0) {
+        lines.push("5. Install the required plugins listed above");
+      }
+    } else if (selected.length > 0) {
       lines.push("3. Install the required plugins listed above");
     }
   }

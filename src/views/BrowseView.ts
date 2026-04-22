@@ -18,6 +18,12 @@ interface ResourceSummary {
   tags?: string[];
 }
 
+interface HubMdAttachedSnippet {
+  path: string;
+  name?: string;
+  optional?: boolean;
+}
+
 const TYPE_FILTERS = ["all", "vault", "snippet", "note", "dashboard"] as const;
 type TypeFilter = typeof TYPE_FILTERS[number];
 
@@ -58,6 +64,71 @@ function encodeGitHubPath(path: string): string {
 
 function basename(path: string): string {
   return path.split("/").pop() || path;
+}
+
+function extractFrontmatter(text: string): string | null {
+  const match = text.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  return match ? match[1] : null;
+}
+
+function parseRequiredPluginIds(frontmatter: string): string[] {
+  const ids: string[] = [];
+  let inPlugins = false;
+  for (const line of frontmatter.split(/\r?\n/)) {
+    if (/^plugins:\s*$/.test(line.trim())) {
+      inPlugins = true;
+      continue;
+    }
+    if (inPlugins && /^[A-Za-z0-9_-][^:]*:\s*/.test(line)) break;
+    if (!inPlugins) continue;
+    const match = line.match(/^\s*-\s*id:\s*(.+)\s*$/);
+    if (match) ids.push(match[1].trim().replace(/^["']|["']$/g, ""));
+  }
+  return ids;
+}
+
+function parseAttachedSnippets(frontmatter: string): HubMdAttachedSnippet[] {
+  const snippets: HubMdAttachedSnippet[] = [];
+  let inAttachedSnippets = false;
+  let current: HubMdAttachedSnippet | null = null;
+
+  const pushCurrent = () => {
+    if (current?.path) snippets.push(current);
+    current = null;
+  };
+
+  for (const line of frontmatter.split(/\r?\n/)) {
+    if (/^attached_snippets:\s*$/.test(line.trim())) {
+      inAttachedSnippets = true;
+      continue;
+    }
+    if (inAttachedSnippets && /^[A-Za-z0-9_-][^:]*:\s*/.test(line)) {
+      pushCurrent();
+      break;
+    }
+    if (!inAttachedSnippets) continue;
+
+    const pathMatch = line.match(/^\s*-\s*path:\s*(.+)\s*$/);
+    if (pathMatch) {
+      pushCurrent();
+      current = { path: pathMatch[1].trim().replace(/^["']|["']$/g, "") };
+      continue;
+    }
+
+    const nameMatch = line.match(/^\s+name:\s*(.+)\s*$/);
+    if (nameMatch && current) {
+      current.name = nameMatch[1].trim().replace(/^["']|["']$/g, "");
+      continue;
+    }
+
+    const optionalMatch = line.match(/^\s+optional:\s*(.+)\s*$/);
+    if (optionalMatch && current) {
+      current.optional = optionalMatch[1].trim().toLowerCase() === "true";
+    }
+  }
+
+  pushCurrent();
+  return snippets;
 }
 
 export class BrowseView extends ItemView {
@@ -302,10 +373,9 @@ export class BrowseView extends ItemView {
       `Installed "${r.title}" - ${installed} files in "${folderName}/"${failed ? ` (${failed} failed)` : ""}`
     );
 
-    // Alert about required plugins listed in hub.md
-    const hubMdPath = `${folderName}/hub.md`;
-    if (await this.app.vault.adapter.exists(hubMdPath)) {
-      await this.notifyRequiredPlugins(hubMdPath, r.title);
+    const hubMd = await this.fetchHubMd(r);
+    if (hubMd) {
+      await this.notifyRequiredPluginsFromContent(hubMd, r.title);
     }
   }
 
@@ -350,13 +420,17 @@ export class BrowseView extends ItemView {
     return candidate;
   }
 
-  private async notifyRequiredPlugins(hubMdPath: string, title: string) {
+  private async fetchHubMd(r: ResourceSummary): Promise<string | null> {
+    const raw = await fetch(`https://raw.githubusercontent.com/${r.full_name}/HEAD/hub.md`);
+    if (!raw.ok) return null;
+    return raw.text();
+  }
+
+  private async notifyRequiredPluginsFromContent(hubMd: string, title: string) {
     try {
-      const hubMd = await this.app.vault.adapter.read(hubMdPath);
-      const ids: string[] = [];
-      for (const m of hubMd.matchAll(/^\s*-\s*id:\s*(.+)$/gm)) {
-        ids.push(m[1].trim());
-      }
+      const frontmatter = extractFrontmatter(hubMd);
+      if (!frontmatter) return;
+      const ids = parseRequiredPluginIds(frontmatter);
       if (ids.length === 0) return;
 
       const installedPlugins = Object.keys(
@@ -416,6 +490,7 @@ export class BrowseView extends ItemView {
 
   /** Download .md files into a named folder */
   private async installNotes(r: ResourceSummary) {
+    const hubMd = await this.fetchHubMd(r);
     const treeRes = await fetch(
       `https://api.github.com/repos/${r.full_name}/git/trees/HEAD?recursive=1`,
       { headers: { Accept: "application/vnd.github.v3+json" } }
@@ -449,6 +524,50 @@ export class BrowseView extends ItemView {
     }
 
     new Notice(`Installed ${installed} note(s) from "${r.title}" in "${folderName}/"`);
+
+    if (hubMd) {
+      await this.installAttachedSnippets(r, hubMd);
+      await this.notifyRequiredPluginsFromContent(hubMd, r.title);
+    }
+  }
+
+  private async installAttachedSnippets(r: ResourceSummary, hubMd: string) {
+    const frontmatter = extractFrontmatter(hubMd);
+    if (!frontmatter) return;
+
+    const attachedSnippets = parseAttachedSnippets(frontmatter);
+    if (attachedSnippets.length === 0) return;
+
+    const snippetsDir = `${this.app.vault.configDir}/snippets`;
+    if (!(await this.app.vault.adapter.exists(snippetsDir))) {
+      await this.app.vault.adapter.mkdir(snippetsDir);
+    }
+
+    let installed = 0;
+    let failed = 0;
+
+    for (const snippet of attachedSnippets) {
+      try {
+        const raw = await fetch(
+          `https://raw.githubusercontent.com/${r.full_name}/HEAD/${encodeGitHubPath(snippet.path)}`
+        );
+        if (!raw.ok) {
+          failed++;
+          continue;
+        }
+        const target = await this.availablePath(`${snippetsDir}/${basename(snippet.path)}`);
+        await this.app.vault.adapter.write(target, await raw.text());
+        installed++;
+      } catch {
+        failed++;
+      }
+    }
+
+    if (installed > 0 || failed > 0) {
+      new Notice(
+        `Installed ${installed} attached snippet(s) from "${r.title}"${failed ? ` (${failed} failed)` : ""}`
+      );
+    }
   }
 
   // ─── SNIPPET MANAGER ─────────────────────────────────────────

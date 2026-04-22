@@ -5,14 +5,22 @@ export interface PublishedResource {
   repoFullName: string;
   localFilePath: string;
   localFiles?: string[];
+  fileMappings?: PublishedFileMapping[];
   type: "snippet" | "note" | "vault" | "bundle";
   lastPublishedAt: string;
+}
+
+export interface PublishedFileMapping {
+  localPath: string;
+  repoPath: string;
+  kind?: "resource" | "attached-snippet" | "screenshot";
 }
 
 export interface VaultHubSettings {
   githubToken: string;
   defaultCategories: string[];
   vaultHubUrl: string;
+  catalogRepoFullName: string;
   publishedResources: PublishedResource[];
 }
 
@@ -20,6 +28,7 @@ export const DEFAULT_SETTINGS: VaultHubSettings = {
   githubToken: "",
   defaultCategories: [],
   vaultHubUrl: "https://obsidianvaulthub.com",
+  catalogRepoFullName: "Maws7140/vault-hub",
   publishedResources: [],
 };
 
@@ -63,6 +72,19 @@ export class VaultHubSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.vaultHubUrl)
           .onChange(async (value) => {
             this.plugin.settings.vaultHubUrl = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Catalog Repository")
+      .setDesc("Repo that stores the website catalog workflow. Used to request a refresh after publish/update.")
+      .addText((text) =>
+        text
+          .setPlaceholder("Maws7140/vault-hub")
+          .setValue(this.plugin.settings.catalogRepoFullName)
+          .onChange(async (value) => {
+            this.plugin.settings.catalogRepoFullName = value.trim();
             await this.plugin.saveSettings();
           })
       );

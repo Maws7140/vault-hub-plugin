@@ -11,6 +11,7 @@ export interface HubMdData {
   compatibleThemes: string[];
   screenshots: string[];
   plugins: DetectedPlugin[];
+  attachedSnippets: { path: string; name?: string; optional?: boolean }[];
   obsidianVersion: string;
   theme: string;
   os: string;
@@ -54,6 +55,15 @@ export function generateHubMd(data: HubMdData): string {
       lines.push(`  - id: ${plugin.id}`);
       lines.push(`    name: "${esc(plugin.name)}"`);
       lines.push(`    version: "${esc(plugin.version)}"`);
+    });
+  }
+
+  if (data.attachedSnippets.length > 0) {
+    lines.push("attached_snippets:");
+    data.attachedSnippets.forEach((snippet) => {
+      lines.push(`  - path: "${esc(snippet.path)}"`);
+      if (snippet.name) lines.push(`    name: "${esc(snippet.name)}"`);
+      if (snippet.optional) lines.push("    optional: true");
     });
   }
 
