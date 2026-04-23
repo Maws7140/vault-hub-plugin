@@ -1410,10 +1410,14 @@ var PublishModal = class extends import_obsidian2.Modal {
   }
   extractMarkdownImageUrls(value) {
     const urls = [];
-    const pattern = /!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
+    const imagePattern = /!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
+    const screenshotLinkPattern = /\[([^\]]*screenshot[^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/gi;
     let match;
-    while (match = pattern.exec(value)) {
+    while (match = imagePattern.exec(value)) {
       urls.push(match[1]);
+    }
+    while (match = screenshotLinkPattern.exec(value)) {
+      urls.push(match[2]);
     }
     return urls;
   }

@@ -1147,10 +1147,14 @@ export class PublishModal extends Modal {
 
   private extractMarkdownImageUrls(value: string): string[] {
     const urls: string[] = [];
-    const pattern = /!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
+    const imagePattern = /!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
+    const screenshotLinkPattern = /\[([^\]]*screenshot[^\]]*)\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/gi;
     let match: RegExpExecArray | null;
-    while ((match = pattern.exec(value))) {
+    while ((match = imagePattern.exec(value))) {
       urls.push(match[1]);
+    }
+    while ((match = screenshotLinkPattern.exec(value))) {
+      urls.push(match[2]);
     }
     return urls;
   }
