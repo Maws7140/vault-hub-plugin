@@ -11,7 +11,8 @@ import type VaultHubPlugin from "../main";
 import { DetectedPlugin, detectPlugins } from "../detection";
 import { GitHubAPI } from "../github";
 import { generateHubMd, HubMdData } from "../hubmd";
-import { generateReadme, ReadmeData } from "../readme";
+import { generateReadme, ReadmeData, syncReadmeScreenshots } from "../readme";
+import type { PublishDraft } from "../settings";
 
 type ResourceType = "snippet" | "note" | "bundle";
 type PublishedType = "snippet" | "note" | "vault";
@@ -122,6 +123,7 @@ export class PublishModal extends Modal {
   selectedFiles: PublishFile[] = [];
   selectedAttachedSnippets: PublishFile[] = [];
   selectedScreenshots: PublishFile[] = [];
+  externalScreenshotUrls = "";
   fileSearchQuery = "";
   attachedSnippetSearchQuery = "";
   screenshotSearchQuery = "";
@@ -140,9 +142,11 @@ export class PublishModal extends Modal {
 
   // Step 4
   readmeContent = "";
-  publishPaused = false;
-  publishCancelled = false;
-  private publishResumeResolver: (() => void) | null = null;
+  private pendingSelectedFilePaths: string[] | null = null;
+  private pendingAttachedSnippetPaths: string[] | null = null;
+  private pendingScreenshotPaths: string[] | null = null;
+  private restoredDraft = false;
+  private preserveDraftOnClose = true;
 
   constructor(app: App, plugin: VaultHubPlugin) {
     super(app);
@@ -150,10 +154,15 @@ export class PublishModal extends Modal {
   }
 
   onOpen() {
-    this.renderStep();
+    this.contentEl.empty();
+    this.contentEl.createEl("p", { text: "Loading publish draft...", cls: "vault-hub-hint" });
+    void this.initialize();
   }
 
   onClose() {
+    if (this.preserveDraftOnClose) {
+      void this.persistDraftOnClose();
+    }
     this.contentEl.empty();
   }
 
@@ -161,6 +170,170 @@ export class PublishModal extends Modal {
     if (this.resourceType === "snippet") return "snippet";
     if (this.resourceType === "bundle") return "vault";
     return "note";
+  }
+
+  private async initialize() {
+    this.restoreDraft();
+    await this.hydrateDraftSelections();
+    this.renderStep();
+  }
+
+  private restoreDraft() {
+    const draft = this.plugin.settings.publishDraft;
+    if (!draft) return;
+
+    this.step = Math.min(Math.max(draft.step || 1, 1), 5);
+    this.resourceType = draft.resourceType || "snippet";
+    this.pendingSelectedFilePaths = [...(draft.selectedFilePaths || [])];
+    this.pendingAttachedSnippetPaths = [...(draft.attachedSnippetPaths || [])];
+    this.pendingScreenshotPaths = [...(draft.screenshotPaths || [])];
+    this.externalScreenshotUrls = draft.externalScreenshotUrls || "";
+    this.fileSearchQuery = draft.fileSearchQuery || "";
+    this.attachedSnippetSearchQuery = draft.attachedSnippetSearchQuery || "";
+    this.screenshotSearchQuery = draft.screenshotSearchQuery || "";
+    this.checkedPlugins = new Set(draft.checkedPluginIds || []);
+    this.name = draft.name || "";
+    this.tagline = draft.tagline || "";
+    this.description = draft.description || "";
+    this.categories = [...(draft.categories || [])];
+    this.tags = draft.tags || "";
+    this.compatibleThemes = [...(draft.compatibleThemes || [])];
+    this.readmeContent = draft.readmeContent || "";
+    this.restoredDraft = true;
+  }
+
+  private async persistDraftOnClose() {
+    if (!this.hasDraftContent()) {
+      if (this.plugin.settings.publishDraft) {
+        this.plugin.settings.publishDraft = null;
+        await this.plugin.saveSettings();
+      }
+      return;
+    }
+    await this.saveDraft();
+  }
+
+  private async hydrateDraftSelections() {
+    if (this.pendingSelectedFilePaths) {
+      const files = await this.collectCandidateFiles();
+      this.restoreSelectionFromPaths(files, this.pendingSelectedFilePaths, (restored) => {
+        this.selectedFiles = restored;
+        this.pendingSelectedFilePaths = null;
+      });
+    }
+
+    if (this.resourceType === "note" && this.pendingAttachedSnippetPaths) {
+      const snippetFiles = await listSnippetFiles(this.app);
+      this.restoreSelectionFromPaths(
+        snippetFiles,
+        this.pendingAttachedSnippetPaths,
+        (restored) => {
+          this.selectedAttachedSnippets = restored;
+          this.pendingAttachedSnippetPaths = null;
+        }
+      );
+    }
+
+    if (this.pendingScreenshotPaths) {
+      const imageFiles = await listImageFiles(this.app);
+      this.restoreSelectionFromPaths(imageFiles, this.pendingScreenshotPaths, (restored) => {
+        this.selectedScreenshots = restored;
+        this.pendingScreenshotPaths = null;
+      });
+    }
+  }
+
+  private hasDraftContent(): boolean {
+    return (
+      this.step > 1 ||
+      this.selectedFiles.length > 0 ||
+      this.selectedAttachedSnippets.length > 0 ||
+      this.selectedScreenshots.length > 0 ||
+      (this.pendingSelectedFilePaths?.length || 0) > 0 ||
+      (this.pendingAttachedSnippetPaths?.length || 0) > 0 ||
+      (this.pendingScreenshotPaths?.length || 0) > 0 ||
+      this.externalScreenshotUrls.trim().length > 0 ||
+      this.name.trim().length > 0 ||
+      this.tagline.trim().length > 0 ||
+      this.description.trim().length > 0 ||
+      this.categories.length > 0 ||
+      this.tags.trim().length > 0 ||
+      this.compatibleThemes.length > 0 ||
+      this.readmeContent.trim().length > 0
+    );
+  }
+
+  private buildDraft(): PublishDraft {
+    return {
+      step: this.step,
+      resourceType: this.resourceType,
+      selectedFilePaths: this.selectedFiles.length > 0
+        ? this.selectedFiles.map((file) => file.path)
+        : [...(this.pendingSelectedFilePaths || [])],
+      attachedSnippetPaths: this.selectedAttachedSnippets.length > 0
+        ? this.selectedAttachedSnippets.map((file) => file.path)
+        : [...(this.pendingAttachedSnippetPaths || [])],
+      screenshotPaths: this.selectedScreenshots.length > 0
+        ? this.selectedScreenshots.map((file) => file.path)
+        : [...(this.pendingScreenshotPaths || [])],
+      externalScreenshotUrls: this.externalScreenshotUrls,
+      fileSearchQuery: this.fileSearchQuery,
+      attachedSnippetSearchQuery: this.attachedSnippetSearchQuery,
+      screenshotSearchQuery: this.screenshotSearchQuery,
+      checkedPluginIds: [...this.checkedPlugins],
+      name: this.name,
+      tagline: this.tagline,
+      description: this.description,
+      categories: [...this.categories],
+      tags: this.tags,
+      compatibleThemes: [...this.compatibleThemes],
+      readmeContent: this.readmeContent,
+    };
+  }
+
+  private async saveDraft() {
+    this.plugin.settings.publishDraft = this.buildDraft();
+    await this.plugin.saveSettings();
+  }
+
+  private async discardDraft() {
+    this.plugin.settings.publishDraft = null;
+    await this.plugin.saveSettings();
+  }
+
+  private resetState() {
+    this.step = 1;
+    this.resourceType = "snippet";
+    this.selectedFiles = [];
+    this.selectedAttachedSnippets = [];
+    this.selectedScreenshots = [];
+    this.externalScreenshotUrls = "";
+    this.fileSearchQuery = "";
+    this.attachedSnippetSearchQuery = "";
+    this.screenshotSearchQuery = "";
+    this.allPlugins = [];
+    this.checkedPlugins = new Set();
+    this.name = "";
+    this.tagline = "";
+    this.description = "";
+    this.categories = [];
+    this.tags = "";
+    this.compatibleThemes = [];
+    this.readmeContent = "";
+    this.pendingSelectedFilePaths = null;
+    this.pendingAttachedSnippetPaths = null;
+    this.pendingScreenshotPaths = null;
+    this.restoredDraft = false;
+  }
+
+  private restoreSelectionFromPaths(
+    files: PublishFile[],
+    pendingPaths: string[] | null,
+    assign: (files: PublishFile[]) => void
+  ) {
+    if (!pendingPaths) return;
+    const wanted = new Set(pendingPaths);
+    assign(files.filter((file) => wanted.has(file.path)));
   }
 
   private renderStep() {
@@ -174,6 +347,19 @@ export class PublishModal extends Modal {
       const dot = progress.createSpan("vault-hub-dot");
       if (i === this.step) dot.addClass("active");
       else if (i < this.step) dot.addClass("done");
+    }
+
+    if (this.restoredDraft) {
+      const draftBar = this.contentEl.createDiv("vault-hub-hint");
+      draftBar.setText("Restored your saved publish draft.");
+      const discardBtn = draftBar.createEl("button", { text: "Start over" });
+      discardBtn.type = "button";
+      discardBtn.style.marginLeft = "8px";
+      discardBtn.addEventListener("click", async () => {
+        this.resetState();
+        await this.discardDraft();
+        this.renderStep();
+      });
     }
 
     switch (this.step) {
@@ -199,6 +385,10 @@ export class PublishModal extends Modal {
           this.resourceType = v as ResourceType;
           this.selectedFiles = [];
           this.selectedAttachedSnippets = [];
+          this.checkedPlugins = new Set();
+          this.allPlugins = [];
+          this.pendingSelectedFilePaths = null;
+          this.pendingAttachedSnippetPaths = null;
           this.renderStep();
         });
       });
@@ -207,6 +397,20 @@ export class PublishModal extends Modal {
     const availableSnippets = this.resourceType === "note"
       ? await listSnippetFiles(this.app)
       : [];
+    this.restoreSelectionFromPaths(files, this.pendingSelectedFilePaths, (restored) => {
+      this.selectedFiles = restored;
+      this.pendingSelectedFilePaths = null;
+    });
+    if (this.resourceType === "note") {
+      this.restoreSelectionFromPaths(
+        availableSnippets,
+        this.pendingAttachedSnippetPaths,
+        (restored) => {
+          this.selectedAttachedSnippets = restored;
+          this.pendingAttachedSnippetPaths = null;
+        }
+      );
+    }
 
     const fileSection = c.createDiv();
     const isBundle = this.resourceType === "bundle";
@@ -310,16 +514,21 @@ export class PublishModal extends Modal {
         cls: "vault-hub-hint",
       });
 
+      const filterSnippets = () => {
+        const needle = this.attachedSnippetSearchQuery.trim().toLowerCase();
+        if (!needle) return availableSnippets;
+        return availableSnippets.filter((file) => {
+          const haystack = `${file.name} ${file.path}`.toLowerCase();
+          return haystack.includes(needle);
+        });
+      };
+
       const attachedSnippetSearch = snippetSection.createEl("input", {
         type: "text",
         placeholder: "Search snippets...",
         cls: "vault-hub-search-input",
       });
       attachedSnippetSearch.value = this.attachedSnippetSearchQuery;
-      attachedSnippetSearch.addEventListener("input", () => {
-        this.attachedSnippetSearchQuery = attachedSnippetSearch.value;
-        renderSnippetList();
-      });
 
       if (availableSnippets.length === 0) {
         snippetSection.createEl("p", {
@@ -335,10 +544,7 @@ export class PublishModal extends Modal {
         emptySnippetSearch.style.display = "none";
 
         const renderSnippetList = () => {
-          const attachedSnippetNeedle = this.attachedSnippetSearchQuery.trim().toLowerCase();
-          const visibleSnippets = attachedSnippetNeedle
-            ? availableSnippets.filter((file) => file.path.toLowerCase().includes(attachedSnippetNeedle))
-            : availableSnippets;
+          const visibleSnippets = filterSnippets();
           const selectedSnippetPaths = new Set(this.selectedAttachedSnippets.map((f) => f.path));
 
           snippetList.empty();
@@ -355,6 +561,11 @@ export class PublishModal extends Modal {
             row.createSpan({ text: file.path });
           });
         };
+
+      attachedSnippetSearch.addEventListener("input", () => {
+        this.attachedSnippetSearchQuery = attachedSnippetSearch.value;
+        renderSnippetList();
+      });
 
         renderSnippetList();
       }
@@ -402,10 +613,11 @@ export class PublishModal extends Modal {
 
     loading.remove();
 
-    // Pre-check auto-detected
-    this.allPlugins.forEach((p) => {
-      if (p.autoDetected) this.checkedPlugins.add(p.id);
-    });
+    if (this.checkedPlugins.size === 0) {
+      this.allPlugins.forEach((p) => {
+        if (p.autoDetected) this.checkedPlugins.add(p.id);
+      });
+    }
 
     const list = c.createDiv("vault-hub-plugin-list");
     this.allPlugins.forEach((p) => {
@@ -470,9 +682,20 @@ export class PublishModal extends Modal {
     const screenshotSection = c.createDiv();
     screenshotSection.createEl("h4", { text: "Screenshots" });
     screenshotSection.createEl("p", {
-      text: "Optional. Upload local image files so the listing has real screenshots instead of placeholders.",
+      text: "Optional. Use local image files, external image URLs, or both.",
       cls: "vault-hub-hint",
     });
+
+    new Setting(screenshotSection)
+      .setName("External screenshot URLs")
+      .setDesc("One per line. Direct image URLs work best.")
+      .addTextArea((t: TextAreaComponent) => {
+        t.setPlaceholder("https://example.com/screenshot.png")
+          .setValue(this.externalScreenshotUrls);
+        t.onChange((v: string) => (this.externalScreenshotUrls = v));
+        t.inputEl.style.width = "100%";
+        t.inputEl.style.minHeight = "72px";
+      });
 
     const screenshotSearch = screenshotSection.createEl("input", {
       type: "text",
@@ -490,6 +713,10 @@ export class PublishModal extends Modal {
 
     const renderScreenshotList = async () => {
       const allImages = await listImageFiles(this.app);
+      this.restoreSelectionFromPaths(allImages, this.pendingScreenshotPaths, (restored) => {
+        this.selectedScreenshots = restored;
+        this.pendingScreenshotPaths = null;
+      });
       const needle = this.screenshotSearchQuery.trim().toLowerCase();
       const visibleImages = needle
         ? allImages.filter((file) => file.path.toLowerCase().includes(needle))
@@ -541,25 +768,7 @@ export class PublishModal extends Modal {
         new Notice("Name is required");
         return false;
       }
-      // Generate README for next step
-      const selected = this.allPlugins
-        .filter((p) => this.checkedPlugins.has(p.id))
-        .map((p) => ({ ...p, autoDetected: true }));
-
-      const readmeData: ReadmeData = {
-        name: this.name,
-        tagline: this.tagline,
-        description: this.description,
-        type: this.getPublishedType(),
-        plugins: selected,
-        files: this.selectedFiles.map((f) => ({ path: f.path })),
-        attachedSnippets: this.getAttachedSnippetFiles().map((file) => ({
-          path: file.repoPath,
-          name: file.name,
-          optional: file.optional,
-        })),
-      };
-      this.readmeContent = generateReadme(readmeData);
+      this.readmeContent = generateReadme(this.buildReadmeData());
       return true;
     });
   }
@@ -600,6 +809,12 @@ export class PublishModal extends Modal {
         text: `Screenshots: ${this.selectedScreenshots.map((f) => f.name).join(", ")}`,
       });
     }
+    const externalScreenshotUrls = this.getExternalScreenshotUrls();
+    if (externalScreenshotUrls.length > 0) {
+      summary.createEl("p", {
+        text: `External screenshots: ${externalScreenshotUrls.length}`,
+      });
+    }
 
     const selPlugins = this.allPlugins.filter((p) => this.checkedPlugins.has(p.id));
     summary.createEl("p", {
@@ -610,7 +825,11 @@ export class PublishModal extends Modal {
     const btnContainer = c.createDiv("vault-hub-nav");
 
     const backBtn = btnContainer.createEl("button", { text: "Back" });
-    backBtn.addEventListener("click", () => { this.step--; this.renderStep(); });
+    backBtn.addEventListener("click", async () => {
+      this.step--;
+      await this.saveDraft();
+      this.renderStep();
+    });
 
     const publishBtn = btnContainer.createEl("button", {
       text: "Publish",
@@ -630,29 +849,9 @@ export class PublishModal extends Modal {
     c.empty();
     c.createEl("h3", { text: "Publishing..." });
     const status = c.createEl("p", { text: "Creating repository..." });
-    const controls = c.createDiv("vault-hub-nav");
-    const pauseBtn = controls.createEl("button", { text: "Pause" });
-    const cancelBtn = controls.createEl("button", { text: "Cancel" });
-
-    this.publishPaused = false;
-    this.publishCancelled = false;
-    this.publishResumeResolver = null;
-
-    const updatePauseButton = () => {
-      pauseBtn.setText(this.publishPaused ? "Resume" : "Pause");
-    };
-    pauseBtn.addEventListener("click", () => {
-      if (this.publishPaused) this.resumePublishing();
-      else this.publishPaused = true;
-      updatePauseButton();
-    });
-    cancelBtn.addEventListener("click", () => {
-      this.publishCancelled = true;
-      this.resumePublishing();
-      status.setText("Cancelling...");
-    });
 
     try {
+      await this.saveDraft();
       const gh = new GitHubAPI(token);
       const user = await gh.getUser();
       const publishedType = this.getPublishedType();
@@ -663,7 +862,6 @@ export class PublishModal extends Modal {
         .replace(/^-|-$/g, "") || "resource";
       const repoName = await gh.getAvailableRepoName(user.login, `obsidian-${publishedType}-${slug}`);
 
-      await this.waitIfPaused();
       status.setText("Creating repository...");
       const repo = await gh.createRepo(repoName, this.tagline || this.name);
       const [owner, rName] = repo.full_name.split("/");
@@ -674,13 +872,11 @@ export class PublishModal extends Modal {
         snippet: "obsidian-css-snippet",
         note: "obsidian-note-template",
       };
-      await this.waitIfPaused();
       status.setText("Adding topic tag...");
       await gh.addTopics(owner, rName, [topicMap[publishedType]]);
 
       // Upload resource files
       for (const file of this.selectedFiles) {
-        await this.waitIfPaused();
         status.setText(`Uploading ${file.path}...`);
         const content = await file.read();
         await gh.createFile(owner, rName, file.path, content, `Add ${file.path}`);
@@ -688,24 +884,34 @@ export class PublishModal extends Modal {
 
       const attachedSnippetFiles = this.getAttachedSnippetFiles();
       for (const file of attachedSnippetFiles) {
-        await this.waitIfPaused();
         status.setText(`Uploading ${file.repoPath}...`);
         const content = await file.read();
         await gh.createFile(owner, rName, file.repoPath, content, `Add ${file.repoPath}`);
       }
 
       const screenshotFiles = this.getScreenshotFiles();
-      const screenshotUrls: string[] = [];
+      const screenshotUrls: string[] = [...this.getExternalScreenshotUrls()];
+      const readmeScreenshots = this.buildReadmeData().screenshots;
       for (const file of screenshotFiles) {
-        await this.waitIfPaused();
         status.setText(`Uploading ${file.repoPath}...`);
         const binary = await file.readBinary();
         await gh.createBinaryFile(owner, rName, file.repoPath, toBase64(binary), `Add ${file.repoPath}`);
         screenshotUrls.push(`https://raw.githubusercontent.com/${owner}/${rName}/HEAD/${file.repoPath}`);
       }
 
+      const readmeContent = syncReadmeScreenshots(
+        this.readmeContent || generateReadme(this.buildReadmeData()),
+        readmeScreenshots
+      );
+      this.readmeContent = readmeContent;
+      const finalScreenshotUrls = this.uniqueStrings([
+        ...screenshotUrls,
+        ...this.extractMarkdownImageUrls(readmeContent).map((url) =>
+          this.resolvePublishedAssetUrl(owner, rName, url)
+        ),
+      ]);
+
       // Generate and upload hub.md
-      await this.waitIfPaused();
       status.setText("Generating hub.md...");
       const selectedPlugins = this.allPlugins
         .filter((p) => this.checkedPlugins.has(p.id))
@@ -723,7 +929,7 @@ export class PublishModal extends Modal {
         categories: this.categories,
         tags: this.tags.split(",").map((t) => t.trim()).filter(Boolean),
         compatibleThemes: this.compatibleThemes,
-        screenshots: screenshotUrls,
+        screenshots: finalScreenshotUrls,
         plugins: selectedPlugins,
         attachedSnippets: attachedSnippetFiles.map((file) => ({
           path: file.repoPath,
@@ -738,17 +944,15 @@ export class PublishModal extends Modal {
           type: f.extension,
           size: f.size,
         })),
-        body: this.readmeContent,
+        body: readmeContent,
       };
 
       const hubMd = generateHubMd(hubData);
-      await this.waitIfPaused();
       await gh.createFile(owner, rName, "hub.md", hubMd, "Add hub.md");
 
       // Upload README
-      await this.waitIfPaused();
       status.setText("Uploading README...");
-      await gh.createFile(owner, rName, "README.md", this.readmeContent, "Add README");
+      await gh.createFile(owner, rName, "README.md", readmeContent, "Add README");
 
       let refreshRequested = false;
       const catalogRepo = this.plugin.settings.catalogRepoFullName.trim();
@@ -779,6 +983,8 @@ export class PublishModal extends Modal {
         type: publishedType,
         lastPublishedAt: new Date().toISOString(),
       });
+      this.plugin.settings.publishDraft = null;
+      this.preserveDraftOnClose = false;
       await this.plugin.saveSettings();
 
       // Success
@@ -815,7 +1021,7 @@ export class PublishModal extends Modal {
     } catch (e) {
       c.empty();
       c.createEl("h3", { text: "Error" });
-      c.createEl("p", { text: this.publishCancelled ? "Publish cancelled." : String(e) });
+      c.createEl("p", { text: String(e) });
       const retryBtn = c.createEl("button", { text: "Back to Review" });
       retryBtn.addEventListener("click", () => {
         this.step = 5;
@@ -833,21 +1039,53 @@ export class PublishModal extends Modal {
 
     if (this.step > 1) {
       const back = nav.createEl("button", { text: "Back" });
-      back.addEventListener("click", () => {
+      back.addEventListener("click", async () => {
         if (backCheck && !backCheck()) return;
         this.step--;
+        await this.saveDraft();
         this.renderStep();
       });
     }
 
     if (this.step < 5) {
       const next = nav.createEl("button", { text: "Next", cls: "mod-cta" });
-      next.addEventListener("click", () => {
+      next.addEventListener("click", async () => {
         if (nextCheck && !nextCheck()) return;
         this.step++;
+        await this.saveDraft();
         this.renderStep();
       });
     }
+  }
+
+  private buildReadmeData(): ReadmeData {
+    const selected = this.allPlugins
+      .filter((plugin) => this.checkedPlugins.has(plugin.id))
+      .map((plugin) => ({ ...plugin, autoDetected: true }));
+
+    return {
+      name: this.name,
+      tagline: this.tagline,
+      description: this.description,
+      type: this.getPublishedType(),
+      plugins: selected,
+      files: this.selectedFiles.map((file) => ({ path: file.path })),
+      attachedSnippets: this.getAttachedSnippetFiles().map((file) => ({
+        path: file.repoPath,
+        name: file.name,
+        optional: file.optional,
+      })),
+      screenshots: [
+        ...this.getScreenshotFiles().map((file) => ({
+          path: file.repoPath,
+          alt: file.name,
+        })),
+        ...this.getExternalScreenshotUrls().map((path, index) => ({
+          path,
+          alt: `Screenshot ${index + 1}`,
+        })),
+      ],
+    };
   }
 
   private getAttachedSnippetFiles(): AttachedSnippetFile[] {
@@ -892,24 +1130,38 @@ export class PublishModal extends Modal {
     });
   }
 
-  private resumePublishing() {
-    this.publishPaused = false;
-    if (this.publishResumeResolver) {
-      this.publishResumeResolver();
-      this.publishResumeResolver = null;
-    }
+  private getExternalScreenshotUrls(): string[] {
+    return this.externalScreenshotUrls
+      .split(/\r?\n/)
+      .map((line) => this.extractMarkdownUrl(line.trim()))
+      .filter(Boolean);
   }
 
-  private async waitIfPaused() {
-    if (this.publishCancelled) {
-      throw new Error("Publish cancelled");
+  private extractMarkdownUrl(value: string): string {
+    const imageMatch = value.match(/^!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)$/);
+    if (imageMatch) return imageMatch[1];
+    const linkMatch = value.match(/^\[[^\]]+\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)$/);
+    if (linkMatch) return linkMatch[1];
+    return value.replace(/^["']|["']$/g, "");
+  }
+
+  private extractMarkdownImageUrls(value: string): string[] {
+    const urls: string[] = [];
+    const pattern = /!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(value))) {
+      urls.push(match[1]);
     }
-    if (!this.publishPaused) return;
-    await new Promise<void>((resolve) => {
-      this.publishResumeResolver = resolve;
-    });
-    if (this.publishCancelled) {
-      throw new Error("Publish cancelled");
-    }
+    return urls;
+  }
+
+  private resolvePublishedAssetUrl(owner: string, repo: string, url: string): string {
+    if (/^(https?:|data:|blob:)/i.test(url)) return url;
+    const clean = url.replace(/^\.?\//, "").replace(/^blob\/[^/]+\//, "");
+    return `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${clean}`;
+  }
+
+  private uniqueStrings(values: string[]): string[] {
+    return values.filter((value, index, all) => value && all.indexOf(value) === index);
   }
 }

@@ -36,7 +36,8 @@ var DEFAULT_SETTINGS = {
   defaultCategories: [],
   vaultHubUrl: "https://obsidianvaulthub.com",
   catalogRepoFullName: "Maws7140/vault-hub",
-  publishedResources: []
+  publishedResources: [],
+  publishDraft: null
 };
 var VaultHubSettingTab = class extends import_obsidian.PluginSettingTab {
   constructor(app, plugin) {
@@ -341,6 +342,7 @@ function generateReadme(data) {
   lines.push("");
   const selected = data.plugins.filter((p) => p.autoDetected);
   const attachedSnippets = data.attachedSnippets || [];
+  const screenshots = data.screenshots || [];
   if (selected.length > 0) {
     lines.push("## Required Plugins");
     lines.push("");
@@ -362,6 +364,15 @@ function generateReadme(data) {
       );
     });
     lines.push("");
+  }
+  if (screenshots.length > 0) {
+    lines.push("## Screenshots");
+    lines.push("");
+    screenshots.forEach((screenshot) => {
+      const alt = screenshot.alt || screenshot.path.split("/").pop() || "Screenshot";
+      lines.push(`![${alt}](${screenshot.path})`);
+      lines.push("");
+    });
   }
   lines.push("## Installation");
   lines.push("");
@@ -397,6 +408,41 @@ function generateReadme(data) {
   lines.push("*Published via [Vault Hub](https://obsidianvaulthub.com)*");
   lines.push("");
   return lines.join("\n");
+}
+function syncReadmeScreenshots(readme, screenshots) {
+  const normalized = readme.replace(/\r\n/g, "\n");
+  const section = buildScreenshotSection(screenshots);
+  const pattern = /## Screenshots\n\n[\s\S]*?(?=\n## |\n---\n|\s*$)/;
+  if (section) {
+    if (pattern.test(normalized)) {
+      return normalized.replace(pattern, section.trimEnd());
+    }
+    const installHeading = "\n## Installation";
+    if (normalized.includes(installHeading)) {
+      return normalized.replace(installHeading, `
+${section}${installHeading}`);
+    }
+    return `${normalized.trimEnd()}
+
+${section}`;
+  }
+  if (pattern.test(normalized)) {
+    return `${normalized.replace(pattern, "").replace(/\n{3,}/g, "\n\n").trimEnd()}
+`;
+  }
+  return normalized;
+}
+function buildScreenshotSection(screenshots) {
+  if (screenshots.length === 0)
+    return "";
+  const lines = ["## Screenshots", ""];
+  screenshots.forEach((screenshot) => {
+    const alt = screenshot.alt || screenshot.path.split("/").pop() || "Screenshot";
+    lines.push(`![${alt}](${screenshot.path})`);
+    lines.push("");
+  });
+  return `${lines.join("\n")}
+`;
 }
 
 // src/modals/PublishModal.ts
@@ -495,6 +541,7 @@ var PublishModal = class extends import_obsidian2.Modal {
     this.selectedFiles = [];
     this.selectedAttachedSnippets = [];
     this.selectedScreenshots = [];
+    this.externalScreenshotUrls = "";
     this.fileSearchQuery = "";
     this.attachedSnippetSearchQuery = "";
     this.screenshotSearchQuery = "";
@@ -510,15 +557,22 @@ var PublishModal = class extends import_obsidian2.Modal {
     this.compatibleThemes = [];
     // Step 4
     this.readmeContent = "";
-    this.publishPaused = false;
-    this.publishCancelled = false;
-    this.publishResumeResolver = null;
+    this.pendingSelectedFilePaths = null;
+    this.pendingAttachedSnippetPaths = null;
+    this.pendingScreenshotPaths = null;
+    this.restoredDraft = false;
+    this.preserveDraftOnClose = true;
     this.plugin = plugin;
   }
   onOpen() {
-    this.renderStep();
+    this.contentEl.empty();
+    this.contentEl.createEl("p", { text: "Loading publish draft...", cls: "vault-hub-hint" });
+    void this.initialize();
   }
   onClose() {
+    if (this.preserveDraftOnClose) {
+      void this.persistDraftOnClose();
+    }
     this.contentEl.empty();
   }
   getPublishedType() {
@@ -527,6 +581,134 @@ var PublishModal = class extends import_obsidian2.Modal {
     if (this.resourceType === "bundle")
       return "vault";
     return "note";
+  }
+  async initialize() {
+    this.restoreDraft();
+    await this.hydrateDraftSelections();
+    this.renderStep();
+  }
+  restoreDraft() {
+    const draft = this.plugin.settings.publishDraft;
+    if (!draft)
+      return;
+    this.step = Math.min(Math.max(draft.step || 1, 1), 5);
+    this.resourceType = draft.resourceType || "snippet";
+    this.pendingSelectedFilePaths = [...draft.selectedFilePaths || []];
+    this.pendingAttachedSnippetPaths = [...draft.attachedSnippetPaths || []];
+    this.pendingScreenshotPaths = [...draft.screenshotPaths || []];
+    this.externalScreenshotUrls = draft.externalScreenshotUrls || "";
+    this.fileSearchQuery = draft.fileSearchQuery || "";
+    this.attachedSnippetSearchQuery = draft.attachedSnippetSearchQuery || "";
+    this.screenshotSearchQuery = draft.screenshotSearchQuery || "";
+    this.checkedPlugins = new Set(draft.checkedPluginIds || []);
+    this.name = draft.name || "";
+    this.tagline = draft.tagline || "";
+    this.description = draft.description || "";
+    this.categories = [...draft.categories || []];
+    this.tags = draft.tags || "";
+    this.compatibleThemes = [...draft.compatibleThemes || []];
+    this.readmeContent = draft.readmeContent || "";
+    this.restoredDraft = true;
+  }
+  async persistDraftOnClose() {
+    if (!this.hasDraftContent()) {
+      if (this.plugin.settings.publishDraft) {
+        this.plugin.settings.publishDraft = null;
+        await this.plugin.saveSettings();
+      }
+      return;
+    }
+    await this.saveDraft();
+  }
+  async hydrateDraftSelections() {
+    if (this.pendingSelectedFilePaths) {
+      const files = await this.collectCandidateFiles();
+      this.restoreSelectionFromPaths(files, this.pendingSelectedFilePaths, (restored) => {
+        this.selectedFiles = restored;
+        this.pendingSelectedFilePaths = null;
+      });
+    }
+    if (this.resourceType === "note" && this.pendingAttachedSnippetPaths) {
+      const snippetFiles = await listSnippetFiles(this.app);
+      this.restoreSelectionFromPaths(
+        snippetFiles,
+        this.pendingAttachedSnippetPaths,
+        (restored) => {
+          this.selectedAttachedSnippets = restored;
+          this.pendingAttachedSnippetPaths = null;
+        }
+      );
+    }
+    if (this.pendingScreenshotPaths) {
+      const imageFiles = await listImageFiles(this.app);
+      this.restoreSelectionFromPaths(imageFiles, this.pendingScreenshotPaths, (restored) => {
+        this.selectedScreenshots = restored;
+        this.pendingScreenshotPaths = null;
+      });
+    }
+  }
+  hasDraftContent() {
+    var _a, _b, _c;
+    return this.step > 1 || this.selectedFiles.length > 0 || this.selectedAttachedSnippets.length > 0 || this.selectedScreenshots.length > 0 || (((_a = this.pendingSelectedFilePaths) == null ? void 0 : _a.length) || 0) > 0 || (((_b = this.pendingAttachedSnippetPaths) == null ? void 0 : _b.length) || 0) > 0 || (((_c = this.pendingScreenshotPaths) == null ? void 0 : _c.length) || 0) > 0 || this.externalScreenshotUrls.trim().length > 0 || this.name.trim().length > 0 || this.tagline.trim().length > 0 || this.description.trim().length > 0 || this.categories.length > 0 || this.tags.trim().length > 0 || this.compatibleThemes.length > 0 || this.readmeContent.trim().length > 0;
+  }
+  buildDraft() {
+    return {
+      step: this.step,
+      resourceType: this.resourceType,
+      selectedFilePaths: this.selectedFiles.length > 0 ? this.selectedFiles.map((file) => file.path) : [...this.pendingSelectedFilePaths || []],
+      attachedSnippetPaths: this.selectedAttachedSnippets.length > 0 ? this.selectedAttachedSnippets.map((file) => file.path) : [...this.pendingAttachedSnippetPaths || []],
+      screenshotPaths: this.selectedScreenshots.length > 0 ? this.selectedScreenshots.map((file) => file.path) : [...this.pendingScreenshotPaths || []],
+      externalScreenshotUrls: this.externalScreenshotUrls,
+      fileSearchQuery: this.fileSearchQuery,
+      attachedSnippetSearchQuery: this.attachedSnippetSearchQuery,
+      screenshotSearchQuery: this.screenshotSearchQuery,
+      checkedPluginIds: [...this.checkedPlugins],
+      name: this.name,
+      tagline: this.tagline,
+      description: this.description,
+      categories: [...this.categories],
+      tags: this.tags,
+      compatibleThemes: [...this.compatibleThemes],
+      readmeContent: this.readmeContent
+    };
+  }
+  async saveDraft() {
+    this.plugin.settings.publishDraft = this.buildDraft();
+    await this.plugin.saveSettings();
+  }
+  async discardDraft() {
+    this.plugin.settings.publishDraft = null;
+    await this.plugin.saveSettings();
+  }
+  resetState() {
+    this.step = 1;
+    this.resourceType = "snippet";
+    this.selectedFiles = [];
+    this.selectedAttachedSnippets = [];
+    this.selectedScreenshots = [];
+    this.externalScreenshotUrls = "";
+    this.fileSearchQuery = "";
+    this.attachedSnippetSearchQuery = "";
+    this.screenshotSearchQuery = "";
+    this.allPlugins = [];
+    this.checkedPlugins = /* @__PURE__ */ new Set();
+    this.name = "";
+    this.tagline = "";
+    this.description = "";
+    this.categories = [];
+    this.tags = "";
+    this.compatibleThemes = [];
+    this.readmeContent = "";
+    this.pendingSelectedFilePaths = null;
+    this.pendingAttachedSnippetPaths = null;
+    this.pendingScreenshotPaths = null;
+    this.restoredDraft = false;
+  }
+  restoreSelectionFromPaths(files, pendingPaths, assign) {
+    if (!pendingPaths)
+      return;
+    const wanted = new Set(pendingPaths);
+    assign(files.filter((file) => wanted.has(file.path)));
   }
   renderStep() {
     this.contentEl.empty();
@@ -540,6 +722,18 @@ var PublishModal = class extends import_obsidian2.Modal {
         dot.addClass("active");
       else if (i < this.step)
         dot.addClass("done");
+    }
+    if (this.restoredDraft) {
+      const draftBar = this.contentEl.createDiv("vault-hub-hint");
+      draftBar.setText("Restored your saved publish draft.");
+      const discardBtn = draftBar.createEl("button", { text: "Start over" });
+      discardBtn.type = "button";
+      discardBtn.style.marginLeft = "8px";
+      discardBtn.addEventListener("click", async () => {
+        this.resetState();
+        await this.discardDraft();
+        this.renderStep();
+      });
     }
     switch (this.step) {
       case 1:
@@ -570,11 +764,29 @@ var PublishModal = class extends import_obsidian2.Modal {
         this.resourceType = v;
         this.selectedFiles = [];
         this.selectedAttachedSnippets = [];
+        this.checkedPlugins = /* @__PURE__ */ new Set();
+        this.allPlugins = [];
+        this.pendingSelectedFilePaths = null;
+        this.pendingAttachedSnippetPaths = null;
         this.renderStep();
       });
     });
     const files = await this.collectCandidateFiles();
     const availableSnippets = this.resourceType === "note" ? await listSnippetFiles(this.app) : [];
+    this.restoreSelectionFromPaths(files, this.pendingSelectedFilePaths, (restored) => {
+      this.selectedFiles = restored;
+      this.pendingSelectedFilePaths = null;
+    });
+    if (this.resourceType === "note") {
+      this.restoreSelectionFromPaths(
+        availableSnippets,
+        this.pendingAttachedSnippetPaths,
+        (restored) => {
+          this.selectedAttachedSnippets = restored;
+          this.pendingAttachedSnippetPaths = null;
+        }
+      );
+    }
     const fileSection = c.createDiv();
     const isBundle = this.resourceType === "bundle";
     fileSection.createEl("h4", { text: `Select file${isBundle ? "s" : ""}` });
@@ -661,16 +873,21 @@ var PublishModal = class extends import_obsidian2.Modal {
         text: "Optional. These will be uploaded into the repo and listed in hub.md so install can pull them automatically.",
         cls: "vault-hub-hint"
       });
+      const filterSnippets = () => {
+        const needle = this.attachedSnippetSearchQuery.trim().toLowerCase();
+        if (!needle)
+          return availableSnippets;
+        return availableSnippets.filter((file) => {
+          const haystack = `${file.name} ${file.path}`.toLowerCase();
+          return haystack.includes(needle);
+        });
+      };
       const attachedSnippetSearch = snippetSection.createEl("input", {
         type: "text",
         placeholder: "Search snippets...",
         cls: "vault-hub-search-input"
       });
       attachedSnippetSearch.value = this.attachedSnippetSearchQuery;
-      attachedSnippetSearch.addEventListener("input", () => {
-        this.attachedSnippetSearchQuery = attachedSnippetSearch.value;
-        renderSnippetList();
-      });
       if (availableSnippets.length === 0) {
         snippetSection.createEl("p", {
           text: "No CSS snippets found in .obsidian/snippets.",
@@ -683,9 +900,8 @@ var PublishModal = class extends import_obsidian2.Modal {
           cls: "vault-hub-hint"
         });
         emptySnippetSearch.style.display = "none";
-        const renderSnippetList2 = () => {
-          const attachedSnippetNeedle = this.attachedSnippetSearchQuery.trim().toLowerCase();
-          const visibleSnippets = attachedSnippetNeedle ? availableSnippets.filter((file) => file.path.toLowerCase().includes(attachedSnippetNeedle)) : availableSnippets;
+        const renderSnippetList = () => {
+          const visibleSnippets = filterSnippets();
           const selectedSnippetPaths = new Set(this.selectedAttachedSnippets.map((f) => f.path));
           snippetList.empty();
           emptySnippetSearch.style.display = visibleSnippets.length === 0 ? "" : "none";
@@ -702,7 +918,11 @@ var PublishModal = class extends import_obsidian2.Modal {
             row.createSpan({ text: file.path });
           });
         };
-        renderSnippetList2();
+        attachedSnippetSearch.addEventListener("input", () => {
+          this.attachedSnippetSearchQuery = attachedSnippetSearch.value;
+          renderSnippetList();
+        });
+        renderSnippetList();
       }
     }
     this.addNav(c, null, () => {
@@ -737,10 +957,12 @@ var PublishModal = class extends import_obsidian2.Modal {
     }
     this.allPlugins = [...detectedById.values()];
     loading.remove();
-    this.allPlugins.forEach((p) => {
-      if (p.autoDetected)
-        this.checkedPlugins.add(p.id);
-    });
+    if (this.checkedPlugins.size === 0) {
+      this.allPlugins.forEach((p) => {
+        if (p.autoDetected)
+          this.checkedPlugins.add(p.id);
+      });
+    }
     const list = c.createDiv("vault-hub-plugin-list");
     this.allPlugins.forEach((p) => {
       const row = list.createDiv("vault-hub-plugin-row");
@@ -796,8 +1018,14 @@ var PublishModal = class extends import_obsidian2.Modal {
     const screenshotSection = c.createDiv();
     screenshotSection.createEl("h4", { text: "Screenshots" });
     screenshotSection.createEl("p", {
-      text: "Optional. Upload local image files so the listing has real screenshots instead of placeholders.",
+      text: "Optional. Use local image files, external image URLs, or both.",
       cls: "vault-hub-hint"
+    });
+    new import_obsidian2.Setting(screenshotSection).setName("External screenshot URLs").setDesc("One per line. Direct image URLs work best.").addTextArea((t) => {
+      t.setPlaceholder("https://example.com/screenshot.png").setValue(this.externalScreenshotUrls);
+      t.onChange((v) => this.externalScreenshotUrls = v);
+      t.inputEl.style.width = "100%";
+      t.inputEl.style.minHeight = "72px";
     });
     const screenshotSearch = screenshotSection.createEl("input", {
       type: "text",
@@ -813,6 +1041,10 @@ var PublishModal = class extends import_obsidian2.Modal {
     screenshotEmpty.style.display = "none";
     const renderScreenshotList = async () => {
       const allImages = await listImageFiles(this.app);
+      this.restoreSelectionFromPaths(allImages, this.pendingScreenshotPaths, (restored) => {
+        this.selectedScreenshots = restored;
+        this.pendingScreenshotPaths = null;
+      });
       const needle = this.screenshotSearchQuery.trim().toLowerCase();
       const visibleImages = needle ? allImages.filter((file) => file.path.toLowerCase().includes(needle)) : allImages;
       const selectedImagePaths = new Set(this.selectedScreenshots.map((file) => file.path));
@@ -858,21 +1090,7 @@ var PublishModal = class extends import_obsidian2.Modal {
         new import_obsidian2.Notice("Name is required");
         return false;
       }
-      const selected = this.allPlugins.filter((p) => this.checkedPlugins.has(p.id)).map((p) => ({ ...p, autoDetected: true }));
-      const readmeData = {
-        name: this.name,
-        tagline: this.tagline,
-        description: this.description,
-        type: this.getPublishedType(),
-        plugins: selected,
-        files: this.selectedFiles.map((f) => ({ path: f.path })),
-        attachedSnippets: this.getAttachedSnippetFiles().map((file) => ({
-          path: file.repoPath,
-          name: file.name,
-          optional: file.optional
-        }))
-      };
-      this.readmeContent = generateReadme(readmeData);
+      this.readmeContent = generateReadme(this.buildReadmeData());
       return true;
     });
   }
@@ -908,6 +1126,12 @@ var PublishModal = class extends import_obsidian2.Modal {
         text: `Screenshots: ${this.selectedScreenshots.map((f) => f.name).join(", ")}`
       });
     }
+    const externalScreenshotUrls = this.getExternalScreenshotUrls();
+    if (externalScreenshotUrls.length > 0) {
+      summary.createEl("p", {
+        text: `External screenshots: ${externalScreenshotUrls.length}`
+      });
+    }
     const selPlugins = this.allPlugins.filter((p) => this.checkedPlugins.has(p.id));
     summary.createEl("p", {
       text: `Plugins: ${selPlugins.length > 0 ? selPlugins.map((p) => p.name).join(", ") : "None"}`
@@ -915,8 +1139,9 @@ var PublishModal = class extends import_obsidian2.Modal {
     summary.createEl("p", { text: `Categories: ${this.categories.join(", ") || "None"}` });
     const btnContainer = c.createDiv("vault-hub-nav");
     const backBtn = btnContainer.createEl("button", { text: "Back" });
-    backBtn.addEventListener("click", () => {
+    backBtn.addEventListener("click", async () => {
       this.step--;
+      await this.saveDraft();
       this.renderStep();
     });
     const publishBtn = btnContainer.createEl("button", {
@@ -936,34 +1161,13 @@ var PublishModal = class extends import_obsidian2.Modal {
     c.empty();
     c.createEl("h3", { text: "Publishing..." });
     const status = c.createEl("p", { text: "Creating repository..." });
-    const controls = c.createDiv("vault-hub-nav");
-    const pauseBtn = controls.createEl("button", { text: "Pause" });
-    const cancelBtn = controls.createEl("button", { text: "Cancel" });
-    this.publishPaused = false;
-    this.publishCancelled = false;
-    this.publishResumeResolver = null;
-    const updatePauseButton = () => {
-      pauseBtn.setText(this.publishPaused ? "Resume" : "Pause");
-    };
-    pauseBtn.addEventListener("click", () => {
-      if (this.publishPaused)
-        this.resumePublishing();
-      else
-        this.publishPaused = true;
-      updatePauseButton();
-    });
-    cancelBtn.addEventListener("click", () => {
-      this.publishCancelled = true;
-      this.resumePublishing();
-      status.setText("Cancelling...");
-    });
     try {
+      await this.saveDraft();
       const gh = new GitHubAPI(token);
       const user = await gh.getUser();
       const publishedType = this.getPublishedType();
       const slug = this.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "resource";
       const repoName = await gh.getAvailableRepoName(user.login, `obsidian-${publishedType}-${slug}`);
-      await this.waitIfPaused();
       status.setText("Creating repository...");
       const repo = await gh.createRepo(repoName, this.tagline || this.name);
       const [owner, rName] = repo.full_name.split("/");
@@ -972,32 +1176,39 @@ var PublishModal = class extends import_obsidian2.Modal {
         snippet: "obsidian-css-snippet",
         note: "obsidian-note-template"
       };
-      await this.waitIfPaused();
       status.setText("Adding topic tag...");
       await gh.addTopics(owner, rName, [topicMap[publishedType]]);
       for (const file of this.selectedFiles) {
-        await this.waitIfPaused();
         status.setText(`Uploading ${file.path}...`);
         const content = await file.read();
         await gh.createFile(owner, rName, file.path, content, `Add ${file.path}`);
       }
       const attachedSnippetFiles = this.getAttachedSnippetFiles();
       for (const file of attachedSnippetFiles) {
-        await this.waitIfPaused();
         status.setText(`Uploading ${file.repoPath}...`);
         const content = await file.read();
         await gh.createFile(owner, rName, file.repoPath, content, `Add ${file.repoPath}`);
       }
       const screenshotFiles = this.getScreenshotFiles();
-      const screenshotUrls = [];
+      const screenshotUrls = [...this.getExternalScreenshotUrls()];
+      const readmeScreenshots = this.buildReadmeData().screenshots;
       for (const file of screenshotFiles) {
-        await this.waitIfPaused();
         status.setText(`Uploading ${file.repoPath}...`);
         const binary = await file.readBinary();
         await gh.createBinaryFile(owner, rName, file.repoPath, toBase64(binary), `Add ${file.repoPath}`);
         screenshotUrls.push(`https://raw.githubusercontent.com/${owner}/${rName}/HEAD/${file.repoPath}`);
       }
-      await this.waitIfPaused();
+      const readmeContent = syncReadmeScreenshots(
+        this.readmeContent || generateReadme(this.buildReadmeData()),
+        readmeScreenshots
+      );
+      this.readmeContent = readmeContent;
+      const finalScreenshotUrls = this.uniqueStrings([
+        ...screenshotUrls,
+        ...this.extractMarkdownImageUrls(readmeContent).map(
+          (url) => this.resolvePublishedAssetUrl(owner, rName, url)
+        )
+      ]);
       status.setText("Generating hub.md...");
       const selectedPlugins = this.allPlugins.filter((p) => this.checkedPlugins.has(p.id)).map((p) => ({ ...p, autoDetected: true }));
       const obsVer = this.app.appVersion || "unknown";
@@ -1011,7 +1222,7 @@ var PublishModal = class extends import_obsidian2.Modal {
         categories: this.categories,
         tags: this.tags.split(",").map((t) => t.trim()).filter(Boolean),
         compatibleThemes: this.compatibleThemes,
-        screenshots: screenshotUrls,
+        screenshots: finalScreenshotUrls,
         plugins: selectedPlugins,
         attachedSnippets: attachedSnippetFiles.map((file) => ({
           path: file.repoPath,
@@ -1026,14 +1237,12 @@ var PublishModal = class extends import_obsidian2.Modal {
           type: f.extension,
           size: f.size
         })),
-        body: this.readmeContent
+        body: readmeContent
       };
       const hubMd = generateHubMd(hubData);
-      await this.waitIfPaused();
       await gh.createFile(owner, rName, "hub.md", hubMd, "Add hub.md");
-      await this.waitIfPaused();
       status.setText("Uploading README...");
-      await gh.createFile(owner, rName, "README.md", this.readmeContent, "Add README");
+      await gh.createFile(owner, rName, "README.md", readmeContent, "Add README");
       let refreshRequested = false;
       const catalogRepo = this.plugin.settings.catalogRepoFullName.trim();
       if (catalogRepo.includes("/")) {
@@ -1061,6 +1270,8 @@ var PublishModal = class extends import_obsidian2.Modal {
         type: publishedType,
         lastPublishedAt: (/* @__PURE__ */ new Date()).toISOString()
       });
+      this.plugin.settings.publishDraft = null;
+      this.preserveDraftOnClose = false;
       await this.plugin.saveSettings();
       c.empty();
       c.createEl("h3", { text: "Published!" });
@@ -1088,7 +1299,7 @@ var PublishModal = class extends import_obsidian2.Modal {
     } catch (e) {
       c.empty();
       c.createEl("h3", { text: "Error" });
-      c.createEl("p", { text: this.publishCancelled ? "Publish cancelled." : String(e) });
+      c.createEl("p", { text: String(e) });
       const retryBtn = c.createEl("button", { text: "Back to Review" });
       retryBtn.addEventListener("click", () => {
         this.step = 5;
@@ -1100,22 +1311,50 @@ var PublishModal = class extends import_obsidian2.Modal {
     const nav = container.createDiv("vault-hub-nav");
     if (this.step > 1) {
       const back = nav.createEl("button", { text: "Back" });
-      back.addEventListener("click", () => {
+      back.addEventListener("click", async () => {
         if (backCheck && !backCheck())
           return;
         this.step--;
+        await this.saveDraft();
         this.renderStep();
       });
     }
     if (this.step < 5) {
       const next = nav.createEl("button", { text: "Next", cls: "mod-cta" });
-      next.addEventListener("click", () => {
+      next.addEventListener("click", async () => {
         if (nextCheck && !nextCheck())
           return;
         this.step++;
+        await this.saveDraft();
         this.renderStep();
       });
     }
+  }
+  buildReadmeData() {
+    const selected = this.allPlugins.filter((plugin) => this.checkedPlugins.has(plugin.id)).map((plugin) => ({ ...plugin, autoDetected: true }));
+    return {
+      name: this.name,
+      tagline: this.tagline,
+      description: this.description,
+      type: this.getPublishedType(),
+      plugins: selected,
+      files: this.selectedFiles.map((file) => ({ path: file.path })),
+      attachedSnippets: this.getAttachedSnippetFiles().map((file) => ({
+        path: file.repoPath,
+        name: file.name,
+        optional: file.optional
+      })),
+      screenshots: [
+        ...this.getScreenshotFiles().map((file) => ({
+          path: file.repoPath,
+          alt: file.name
+        })),
+        ...this.getExternalScreenshotUrls().map((path, index) => ({
+          path,
+          alt: `Screenshot ${index + 1}`
+        }))
+      ]
+    };
   }
   getAttachedSnippetFiles() {
     const used = /* @__PURE__ */ new Set();
@@ -1157,25 +1396,35 @@ var PublishModal = class extends import_obsidian2.Modal {
       };
     });
   }
-  resumePublishing() {
-    this.publishPaused = false;
-    if (this.publishResumeResolver) {
-      this.publishResumeResolver();
-      this.publishResumeResolver = null;
-    }
+  getExternalScreenshotUrls() {
+    return this.externalScreenshotUrls.split(/\r?\n/).map((line) => this.extractMarkdownUrl(line.trim())).filter(Boolean);
   }
-  async waitIfPaused() {
-    if (this.publishCancelled) {
-      throw new Error("Publish cancelled");
+  extractMarkdownUrl(value) {
+    const imageMatch = value.match(/^!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)$/);
+    if (imageMatch)
+      return imageMatch[1];
+    const linkMatch = value.match(/^\[[^\]]+\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)$/);
+    if (linkMatch)
+      return linkMatch[1];
+    return value.replace(/^["']|["']$/g, "");
+  }
+  extractMarkdownImageUrls(value) {
+    const urls = [];
+    const pattern = /!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)/g;
+    let match;
+    while (match = pattern.exec(value)) {
+      urls.push(match[1]);
     }
-    if (!this.publishPaused)
-      return;
-    await new Promise((resolve) => {
-      this.publishResumeResolver = resolve;
-    });
-    if (this.publishCancelled) {
-      throw new Error("Publish cancelled");
-    }
+    return urls;
+  }
+  resolvePublishedAssetUrl(owner, repo, url) {
+    if (/^(https?:|data:|blob:)/i.test(url))
+      return url;
+    const clean = url.replace(/^\.?\//, "").replace(/^blob\/[^/]+\//, "");
+    return `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${clean}`;
+  }
+  uniqueStrings(values) {
+    return values.filter((value, index, all) => value && all.indexOf(value) === index);
   }
 };
 

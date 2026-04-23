@@ -16,12 +16,33 @@ export interface PublishedFileMapping {
   kind?: "resource" | "attached-snippet" | "screenshot";
 }
 
+export interface PublishDraft {
+  step: number;
+  resourceType: "snippet" | "note" | "bundle";
+  selectedFilePaths: string[];
+  attachedSnippetPaths: string[];
+  screenshotPaths: string[];
+  externalScreenshotUrls: string;
+  fileSearchQuery: string;
+  attachedSnippetSearchQuery: string;
+  screenshotSearchQuery: string;
+  checkedPluginIds: string[];
+  name: string;
+  tagline: string;
+  description: string;
+  categories: string[];
+  tags: string;
+  compatibleThemes: string[];
+  readmeContent: string;
+}
+
 export interface VaultHubSettings {
   githubToken: string;
   defaultCategories: string[];
   vaultHubUrl: string;
   catalogRepoFullName: string;
   publishedResources: PublishedResource[];
+  publishDraft: PublishDraft | null;
 }
 
 export const DEFAULT_SETTINGS: VaultHubSettings = {
@@ -30,6 +51,7 @@ export const DEFAULT_SETTINGS: VaultHubSettings = {
   vaultHubUrl: "https://obsidianvaulthub.com",
   catalogRepoFullName: "Maws7140/vault-hub",
   publishedResources: [],
+  publishDraft: null,
 };
 
 export class VaultHubSettingTab extends PluginSettingTab {
