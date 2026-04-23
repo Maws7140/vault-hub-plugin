@@ -101,15 +101,15 @@ function toBase64(data: ArrayBuffer): string {
 const CATEGORIES: Record<string, string[]> = {
   snippet: [
     "ui-tweak", "layout", "typography", "colors",
-    "editor", "sidebar", "dashboard", "starter",
+    "editor", "sidebar", "dashboard", "starter", "ai",
   ],
   note: [
     "dashboard", "tracker", "query", "daily-note",
-    "project-template", "kanban", "book-notes", "habit-tracker",
+    "project-template", "kanban", "book-notes", "habit-tracker", "ai",
   ],
   bundle: [
     "starter", "student", "developer", "writer",
-    "researcher", "pkm", "project-management", "worldbuilding",
+    "researcher", "ai", "pkm", "project-management", "worldbuilding",
     "journaling", "dashboard", "tracker", "finance",
   ],
 };

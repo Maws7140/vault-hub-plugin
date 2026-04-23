@@ -505,7 +505,8 @@ var CATEGORIES = {
     "editor",
     "sidebar",
     "dashboard",
-    "starter"
+    "starter",
+    "ai"
   ],
   note: [
     "dashboard",
@@ -515,7 +516,8 @@ var CATEGORIES = {
     "project-template",
     "kanban",
     "book-notes",
-    "habit-tracker"
+    "habit-tracker",
+    "ai"
   ],
   bundle: [
     "starter",
@@ -523,6 +525,7 @@ var CATEGORIES = {
     "developer",
     "writer",
     "researcher",
+    "ai",
     "pkm",
     "project-management",
     "worldbuilding",
