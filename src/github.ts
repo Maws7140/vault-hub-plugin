@@ -26,6 +26,21 @@ export class GitHubAPI {
     return this.request("/user");
   }
 
+  async listAuthenticatedRepos(): Promise<
+    { full_name: string; name: string; updated_at: string }[]
+  > {
+    const repos: { full_name: string; name: string; updated_at: string }[] = [];
+    for (let page = 1; page <= 5; page++) {
+      const batch = await this.request(
+        `/user/repos?per_page=100&page=${page}&affiliation=owner&sort=updated`
+      ) as { full_name: string; name: string; updated_at: string }[];
+      if (!Array.isArray(batch) || batch.length === 0) break;
+      repos.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return repos;
+  }
+
   async createRepo(
     name: string,
     description: string

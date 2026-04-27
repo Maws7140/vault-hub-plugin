@@ -1162,7 +1162,7 @@ export class PublishModal extends Modal {
       }
 
       // Save to published resources
-      this.plugin.settings.publishedResources.push({
+      const publishedResource = {
         repoFullName: repo.full_name,
         localFilePath: resourceFiles[0]?.path || this.selectedFiles[0].path,
         localFiles: resourceFiles.map((f) => f.path),
@@ -1173,7 +1173,15 @@ export class PublishModal extends Modal {
         ],
         type: publishedType,
         lastPublishedAt: new Date().toISOString(),
-      });
+      };
+      const existingIndex = this.plugin.settings.publishedResources.findIndex(
+        (resource) => resource.repoFullName === repo.full_name
+      );
+      if (existingIndex >= 0) {
+        this.plugin.settings.publishedResources[existingIndex] = publishedResource;
+      } else {
+        this.plugin.settings.publishedResources.push(publishedResource);
+      }
       this.plugin.settings.publishDraft = null;
       this.preserveDraftOnClose = false;
       await this.plugin.saveSettings();

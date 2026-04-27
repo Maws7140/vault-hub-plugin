@@ -172,6 +172,20 @@ var GitHubAPI = class {
   async getUser() {
     return this.request("/user");
   }
+  async listAuthenticatedRepos() {
+    const repos = [];
+    for (let page = 1; page <= 5; page++) {
+      const batch = await this.request(
+        `/user/repos?per_page=100&page=${page}&affiliation=owner&sort=updated`
+      );
+      if (!Array.isArray(batch) || batch.length === 0)
+        break;
+      repos.push(...batch);
+      if (batch.length < 100)
+        break;
+    }
+    return repos;
+  }
   async createRepo(name, description) {
     return this.request("/user/repos", {
       method: "POST",
@@ -1467,7 +1481,7 @@ var PublishModal = class extends import_obsidian2.Modal {
           refreshRequested = false;
         }
       }
-      this.plugin.settings.publishedResources.push({
+      const publishedResource = {
         repoFullName: repo.full_name,
         localFilePath: ((_b = resourceFiles[0]) == null ? void 0 : _b.path) || this.selectedFiles[0].path,
         localFiles: resourceFiles.map((f) => f.path),
@@ -1478,7 +1492,15 @@ var PublishModal = class extends import_obsidian2.Modal {
         ],
         type: publishedType,
         lastPublishedAt: (/* @__PURE__ */ new Date()).toISOString()
-      });
+      };
+      const existingIndex = this.plugin.settings.publishedResources.findIndex(
+        (resource) => resource.repoFullName === repo.full_name
+      );
+      if (existingIndex >= 0) {
+        this.plugin.settings.publishedResources[existingIndex] = publishedResource;
+      } else {
+        this.plugin.settings.publishedResources.push(publishedResource);
+      }
       this.plugin.settings.publishDraft = null;
       this.preserveDraftOnClose = false;
       await this.plugin.saveSettings();
@@ -1653,21 +1675,25 @@ var UpdateModal = class extends import_obsidian3.Modal {
     super(app);
     this.selected = null;
     this.files = [];
+    this.syncedResources = [];
+    this.selectedHasLocalMappings = false;
     this.plugin = plugin;
   }
   onOpen() {
-    this.renderSelect();
+    void this.renderSelect();
   }
   onClose() {
     this.contentEl.empty();
   }
   // ─── Step 1: select resource ───────────────────────────────
-  renderSelect() {
+  async renderSelect() {
     const c = this.contentEl;
     c.empty();
     c.addClass("vault-hub-modal");
     c.createEl("h2", { text: "Update Resource" });
-    const resources = this.plugin.settings.publishedResources;
+    const loading = c.createEl("p", { text: "Loading resources...", cls: "vault-hub-hint" });
+    const resources = await this.getSelectableResources();
+    loading.remove();
     if (resources.length === 0) {
       c.createEl("p", {
         text: "No published resources yet \u2014 publish one first.",
@@ -1678,7 +1704,8 @@ var UpdateModal = class extends import_obsidian3.Modal {
     new import_obsidian3.Setting(c).setName("Resource").addDropdown((dd) => {
       dd.addOption("", "Select...");
       resources.forEach((r, i) => {
-        dd.addOption(String(i), `${r.repoFullName} (${r.type}) \u2014 ${timeAgo(new Date(r.lastPublishedAt))}`);
+        const suffix = this.hasLocalMappings(r) ? "" : " \u2014 GitHub only";
+        dd.addOption(String(i), `${r.repoFullName} (${r.type}) \u2014 ${timeAgo(new Date(r.lastPublishedAt))}${suffix}`);
       });
       dd.onChange((v) => {
         this.selected = v ? resources[parseInt(v)] : null;
@@ -1707,6 +1734,7 @@ var UpdateModal = class extends import_obsidian3.Modal {
     try {
       const gh = new GitHubAPI(token);
       const fileMappings = this.getFileMappings(this.selected);
+      this.selectedHasLocalMappings = fileMappings.length > 0;
       this.files = [];
       for (const mapping of fileMappings) {
         if (!mapping.localPath.match(/\.(md|css|yml|yaml|js|json|txt|canvas)$/i))
@@ -1763,8 +1791,13 @@ var UpdateModal = class extends import_obsidian3.Modal {
     });
     const nav = c.createDiv("vault-hub-nav");
     const backBtn = nav.createEl("button", { text: "Back" });
-    backBtn.addEventListener("click", () => this.renderSelect());
-    if (changed.length === 0) {
+    backBtn.addEventListener("click", () => void this.renderSelect());
+    if (!this.selectedHasLocalMappings) {
+      c.createEl("p", {
+        text: "This repo was found from your GitHub account, but this vault has no local file mappings for it yet.",
+        cls: "vault-hub-hint"
+      });
+    } else if (changed.length === 0) {
       c.createEl("p", { text: "Everything is up to date.", cls: "vault-hub-hint" });
     } else {
       const pushBtn = nav.createEl("button", {
@@ -1837,15 +1870,63 @@ var UpdateModal = class extends import_obsidian3.Modal {
     }
   }
   getFileMappings(resource) {
-    var _a;
+    var _a, _b;
     if ((_a = resource.fileMappings) == null ? void 0 : _a.length)
-      return resource.fileMappings;
-    const localFiles = resource.localFiles || [resource.localFilePath];
+      return resource.fileMappings.filter((mapping) => Boolean(mapping.localPath));
+    const localFiles = ((_b = resource.localFiles) == null ? void 0 : _b.filter(Boolean)) || (resource.localFilePath ? [resource.localFilePath] : []);
     return localFiles.map((path) => ({
       localPath: path,
       repoPath: path,
       kind: "resource"
     }));
+  }
+  hasLocalMappings(resource) {
+    return this.getFileMappings(resource).length > 0;
+  }
+  async getSelectableResources() {
+    const local = this.plugin.settings.publishedResources || [];
+    const token = this.plugin.settings.githubToken;
+    const merged = /* @__PURE__ */ new Map();
+    for (const resource of local) {
+      merged.set(resource.repoFullName, resource);
+    }
+    if (token) {
+      try {
+        const gh = new GitHubAPI(token);
+        const repos = await gh.listAuthenticatedRepos();
+        for (const repo of repos) {
+          const inferredType = inferPublishedType(repo.name);
+          if (!inferredType)
+            continue;
+          const existing = merged.get(repo.full_name);
+          if (existing) {
+            merged.set(repo.full_name, {
+              ...existing,
+              lastPublishedAt: newerDate(existing.lastPublishedAt, repo.updated_at)
+            });
+          } else {
+            merged.set(repo.full_name, {
+              repoFullName: repo.full_name,
+              localFilePath: "",
+              localFiles: [],
+              fileMappings: [],
+              type: inferredType,
+              lastPublishedAt: repo.updated_at
+            });
+          }
+        }
+      } catch (e) {
+      }
+    }
+    const resources = [...merged.values()].sort(
+      (a, b) => new Date(b.lastPublishedAt).getTime() - new Date(a.lastPublishedAt).getTime()
+    );
+    if (JSON.stringify(resources) !== JSON.stringify(local)) {
+      this.plugin.settings.publishedResources = resources;
+      await this.plugin.saveSettings();
+    }
+    this.syncedResources = resources;
+    return resources;
   }
   async readLocalContent(path) {
     const tfile = this.app.vault.getAbstractFileByPath(path);
@@ -1872,6 +1953,18 @@ function timeAgo(date) {
   if (h < 24)
     return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
+}
+function inferPublishedType(repoName) {
+  if (repoName.startsWith("obsidian-snippet-"))
+    return "snippet";
+  if (repoName.startsWith("obsidian-note-"))
+    return "note";
+  if (repoName.startsWith("obsidian-vault-"))
+    return "vault";
+  return null;
+}
+function newerDate(a, b) {
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
 }
 
 // src/views/BrowseView.ts
