@@ -41,6 +41,12 @@ interface ScreenshotFile {
   readBinary: () => Promise<ArrayBuffer>;
 }
 
+const RESERVED_ROOT_PATHS = new Set(["readme.md", "hub.md"]);
+
+function isReservedRootPath(path: string): boolean {
+  return RESERVED_ROOT_PATHS.has(path.trim().replace(/\\/g, "/").toLowerCase());
+}
+
 function tfileToPublishFile(app: App, f: TFile): PublishFile {
   return {
     path: f.path,
@@ -446,6 +452,11 @@ export class PublishModal extends Modal {
         text: "Sourced from .obsidian/snippets. Drop .css files there if nothing shows up.",
         cls: "vault-hub-hint",
       });
+    } else {
+      fileSection.createEl("p", {
+        text: "Root README.md and hub.md are managed by Vault Hub and are excluded from resource files.",
+        cls: "vault-hub-hint",
+      });
     }
 
     if (files.length === 0) {
@@ -602,6 +613,7 @@ export class PublishModal extends Modal {
     return this.app.vault
       .getFiles()
       .filter((f: TFile) => f.extension === "md")
+      .filter((f: TFile) => !isReservedRootPath(f.path))
       .sort((a: TFile, b: TFile) => a.path.localeCompare(b.path))
       .map((f) => tfileToPublishFile(this.app, f));
   }
@@ -1033,6 +1045,7 @@ export class PublishModal extends Modal {
       const gh = new GitHubAPI(token);
       const user = await gh.getUser();
       const publishedType = this.getPublishedType();
+      const resourceFiles = this.getPublishResourceFiles();
 
       const slug = this.name
         .toLowerCase()
@@ -1054,7 +1067,7 @@ export class PublishModal extends Modal {
       await gh.addTopics(owner, rName, [topicMap[publishedType]]);
 
       // Upload resource files
-      for (const file of this.selectedFiles) {
+      for (const file of resourceFiles) {
         status.setText(`Uploading ${file.path}...`);
         const content = await file.read();
         await gh.createFile(owner, rName, file.path, content, `Add ${file.path}`);
@@ -1117,7 +1130,7 @@ export class PublishModal extends Modal {
         obsidianVersion: obsVer,
         theme: themeName,
         os: navigator.platform,
-        files: this.selectedFiles.map((f) => ({
+        files: resourceFiles.map((f) => ({
           path: f.path,
           type: f.extension,
           size: f.size,
@@ -1151,10 +1164,10 @@ export class PublishModal extends Modal {
       // Save to published resources
       this.plugin.settings.publishedResources.push({
         repoFullName: repo.full_name,
-        localFilePath: this.selectedFiles[0].path,
-        localFiles: this.selectedFiles.map((f) => f.path),
+        localFilePath: resourceFiles[0]?.path || this.selectedFiles[0].path,
+        localFiles: resourceFiles.map((f) => f.path),
         fileMappings: [
-          ...this.selectedFiles.map((f) => ({ localPath: f.path, repoPath: f.path, kind: "resource" as const })),
+          ...resourceFiles.map((f) => ({ localPath: f.path, repoPath: f.path, kind: "resource" as const })),
           ...attachedSnippetFiles.map((f) => ({ localPath: f.localPath, repoPath: f.repoPath, kind: "attached-snippet" as const })),
           ...screenshotFiles.map((f) => ({ localPath: f.localPath, repoPath: f.repoPath, kind: "screenshot" as const })),
         ],
@@ -1238,6 +1251,7 @@ export class PublishModal extends Modal {
   }
 
   private buildReadmeData(): ReadmeData {
+    const resourceFiles = this.getPublishResourceFiles();
     const selected = this.allPlugins
       .filter((plugin) => this.checkedPlugins.has(plugin.id))
       .map((plugin) => ({ ...plugin, autoDetected: true }));
@@ -1248,7 +1262,7 @@ export class PublishModal extends Modal {
       description: this.description,
       type: this.getPublishedType(),
       plugins: selected,
-      files: this.selectedFiles.map((file) => ({ path: file.path })),
+      files: resourceFiles.map((file) => ({ path: file.path })),
       attachedSnippets: this.getAttachedSnippetFiles().map((file) => ({
         path: file.repoPath,
         name: file.name,
@@ -1265,6 +1279,10 @@ export class PublishModal extends Modal {
         })),
       ],
     };
+  }
+
+  private getPublishResourceFiles(): PublishFile[] {
+    return this.selectedFiles.filter((file) => !isReservedRootPath(file.path));
   }
 
   private getAttachedSnippetFiles(): AttachedSnippetFile[] {
