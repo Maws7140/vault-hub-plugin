@@ -1070,14 +1070,14 @@ export class PublishModal extends Modal {
       for (const file of resourceFiles) {
         status.setText(`Uploading ${file.path}...`);
         const content = await file.read();
-        await gh.createFile(owner, rName, file.path, content, `Add ${file.path}`);
+        await gh.upsertFile(owner, rName, file.path, content, `Sync ${file.path}`);
       }
 
       const attachedSnippetFiles = this.getAttachedSnippetFiles();
       for (const file of attachedSnippetFiles) {
         status.setText(`Uploading ${file.repoPath}...`);
         const content = await file.read();
-        await gh.createFile(owner, rName, file.repoPath, content, `Add ${file.repoPath}`);
+        await gh.upsertFile(owner, rName, file.repoPath, content, `Sync ${file.repoPath}`);
       }
 
       const screenshotFiles = this.getScreenshotFiles();
@@ -1086,7 +1086,7 @@ export class PublishModal extends Modal {
       for (const file of screenshotFiles) {
         status.setText(`Uploading ${file.repoPath}...`);
         const binary = await file.readBinary();
-        await gh.createBinaryFile(owner, rName, file.repoPath, toBase64(binary), `Add ${file.repoPath}`);
+        await gh.upsertBinaryFile(owner, rName, file.repoPath, toBase64(binary), `Sync ${file.repoPath}`);
         screenshotUrls.push(`https://raw.githubusercontent.com/${owner}/${rName}/HEAD/${file.repoPath}`);
       }
 
@@ -1139,11 +1139,11 @@ export class PublishModal extends Modal {
       };
 
       const hubMd = generateHubMd(hubData);
-      await gh.createFile(owner, rName, "hub.md", hubMd, "Add hub.md");
+      await gh.upsertFile(owner, rName, "hub.md", hubMd, "Sync hub.md");
 
       // Upload README
       status.setText("Uploading README...");
-      await gh.createFile(owner, rName, "README.md", readmeContent, "Add README");
+      await gh.upsertFile(owner, rName, "README.md", readmeContent, "Sync README.md");
 
       let refreshRequested = false;
       const catalogRepo = this.plugin.settings.catalogRepoFullName.trim();

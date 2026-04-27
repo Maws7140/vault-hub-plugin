@@ -202,12 +202,44 @@ var GitHubAPI = class {
       body: JSON.stringify({ message, content: base64Content, encoding: "base64" })
     });
   }
+  async getFileSha(owner, repo, path) {
+    try {
+      const data = await this.request(
+        `/repos/${owner}/${repo}/contents/${this.encodePath(path)}`
+      );
+      return typeof (data == null ? void 0 : data.sha) === "string" ? data.sha : null;
+    } catch (error) {
+      if (String(error).includes("GitHub API 404"))
+        return null;
+      throw error;
+    }
+  }
   async updateFile(owner, repo, path, content, message, sha) {
     const encoded = btoa(unescape(encodeURIComponent(content)));
     return this.request(`/repos/${owner}/${repo}/contents/${this.encodePath(path)}`, {
       method: "PUT",
       body: JSON.stringify({ message, content: encoded, sha })
     });
+  }
+  async updateBinaryFile(owner, repo, path, base64Content, message, sha) {
+    return this.request(`/repos/${owner}/${repo}/contents/${this.encodePath(path)}`, {
+      method: "PUT",
+      body: JSON.stringify({ message, content: base64Content, encoding: "base64", sha })
+    });
+  }
+  async upsertFile(owner, repo, path, content, message) {
+    const sha = await this.getFileSha(owner, repo, path);
+    if (sha) {
+      return this.updateFile(owner, repo, path, content, message, sha);
+    }
+    return this.createFile(owner, repo, path, content, message);
+  }
+  async upsertBinaryFile(owner, repo, path, base64Content, message) {
+    const sha = await this.getFileSha(owner, repo, path);
+    if (sha) {
+      return this.updateBinaryFile(owner, repo, path, base64Content, message, sha);
+    }
+    return this.createBinaryFile(owner, repo, path, base64Content, message);
   }
   async getFileContent(owner, repo, path) {
     try {
@@ -1358,13 +1390,13 @@ var PublishModal = class extends import_obsidian2.Modal {
       for (const file of resourceFiles) {
         status.setText(`Uploading ${file.path}...`);
         const content = await file.read();
-        await gh.createFile(owner, rName, file.path, content, `Add ${file.path}`);
+        await gh.upsertFile(owner, rName, file.path, content, `Sync ${file.path}`);
       }
       const attachedSnippetFiles = this.getAttachedSnippetFiles();
       for (const file of attachedSnippetFiles) {
         status.setText(`Uploading ${file.repoPath}...`);
         const content = await file.read();
-        await gh.createFile(owner, rName, file.repoPath, content, `Add ${file.repoPath}`);
+        await gh.upsertFile(owner, rName, file.repoPath, content, `Sync ${file.repoPath}`);
       }
       const screenshotFiles = this.getScreenshotFiles();
       const screenshotUrls = [...this.getExternalScreenshotUrls()];
@@ -1372,7 +1404,7 @@ var PublishModal = class extends import_obsidian2.Modal {
       for (const file of screenshotFiles) {
         status.setText(`Uploading ${file.repoPath}...`);
         const binary = await file.readBinary();
-        await gh.createBinaryFile(owner, rName, file.repoPath, toBase64(binary), `Add ${file.repoPath}`);
+        await gh.upsertBinaryFile(owner, rName, file.repoPath, toBase64(binary), `Sync ${file.repoPath}`);
         screenshotUrls.push(`https://raw.githubusercontent.com/${owner}/${rName}/HEAD/${file.repoPath}`);
       }
       const readmeContent = syncReadmeScreenshots(
@@ -1417,9 +1449,9 @@ var PublishModal = class extends import_obsidian2.Modal {
         body: readmeContent
       };
       const hubMd = generateHubMd(hubData);
-      await gh.createFile(owner, rName, "hub.md", hubMd, "Add hub.md");
+      await gh.upsertFile(owner, rName, "hub.md", hubMd, "Sync hub.md");
       status.setText("Uploading README...");
-      await gh.createFile(owner, rName, "README.md", readmeContent, "Add README");
+      await gh.upsertFile(owner, rName, "README.md", readmeContent, "Sync README.md");
       let refreshRequested = false;
       const catalogRepo = this.plugin.settings.catalogRepoFullName.trim();
       if (catalogRepo.includes("/")) {

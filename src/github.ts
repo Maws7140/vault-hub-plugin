@@ -75,6 +75,22 @@ export class GitHubAPI {
     });
   }
 
+  async getFileSha(
+    owner: string,
+    repo: string,
+    path: string
+  ): Promise<string | null> {
+    try {
+      const data = await this.request(
+        `/repos/${owner}/${repo}/contents/${this.encodePath(path)}`
+      );
+      return typeof data?.sha === "string" ? data.sha : null;
+    } catch (error) {
+      if (String(error).includes("GitHub API 404")) return null;
+      throw error;
+    }
+  }
+
   async updateFile(
     owner: string,
     repo: string,
@@ -88,6 +104,48 @@ export class GitHubAPI {
       method: "PUT",
       body: JSON.stringify({ message, content: encoded, sha }),
     });
+  }
+
+  async updateBinaryFile(
+    owner: string,
+    repo: string,
+    path: string,
+    base64Content: string,
+    message: string,
+    sha: string
+  ) {
+    return this.request(`/repos/${owner}/${repo}/contents/${this.encodePath(path)}`, {
+      method: "PUT",
+      body: JSON.stringify({ message, content: base64Content, encoding: "base64", sha }),
+    });
+  }
+
+  async upsertFile(
+    owner: string,
+    repo: string,
+    path: string,
+    content: string,
+    message: string
+  ) {
+    const sha = await this.getFileSha(owner, repo, path);
+    if (sha) {
+      return this.updateFile(owner, repo, path, content, message, sha);
+    }
+    return this.createFile(owner, repo, path, content, message);
+  }
+
+  async upsertBinaryFile(
+    owner: string,
+    repo: string,
+    path: string,
+    base64Content: string,
+    message: string
+  ) {
+    const sha = await this.getFileSha(owner, repo, path);
+    if (sha) {
+      return this.updateBinaryFile(owner, repo, path, base64Content, message, sha);
+    }
+    return this.createBinaryFile(owner, repo, path, base64Content, message);
   }
 
   async getFileContent(
