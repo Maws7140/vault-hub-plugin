@@ -85,6 +85,20 @@ async function listSnippetFiles(app: App): Promise<PublishFile[]> {
   }
 }
 
+async function getEnabledSnippetIds(app: App): Promise<Set<string>> {
+  try {
+    const raw = await app.vault.adapter.read(`${app.vault.configDir}/appearance.json`);
+    const parsed = JSON.parse(raw) as { enabledCssSnippets?: string[] };
+    return new Set((parsed.enabledCssSnippets || []).map((value) => String(value || "").toLowerCase()));
+  } catch {
+    return new Set();
+  }
+}
+
+function snippetIdFromFile(file: Pick<PublishFile, "name">): string {
+  return file.name.replace(/\.css$/i, "").toLowerCase();
+}
+
 async function listImageFiles(app: App): Promise<PublishFile[]> {
   const imageExts = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
   return app.vault
@@ -222,7 +236,7 @@ export class PublishModal extends Modal {
       });
     }
 
-    if (this.resourceType === "note" && this.pendingAttachedSnippetPaths) {
+    if ((this.resourceType === "note" || this.resourceType === "bundle") && this.pendingAttachedSnippetPaths) {
       const snippetFiles = await listSnippetFiles(this.app);
       this.restoreSelectionFromPaths(
         snippetFiles,
@@ -666,6 +680,112 @@ export class PublishModal extends Modal {
 
     if (this.allPlugins.length === 0) {
       c.createEl("p", { text: "No community plugins installed.", cls: "vault-hub-hint" });
+    }
+
+    if (this.resourceType === "bundle") {
+      const snippetSection = c.createDiv();
+      snippetSection.createEl("h4", { text: "Attach active CSS snippets" });
+      snippetSection.createEl("p", {
+        text: "Enabled snippets are preselected. Review the list and keep only the ones this vault actually needs.",
+        cls: "vault-hub-hint",
+      });
+
+      const availableSnippets = await listSnippetFiles(this.app);
+      const enabledSnippetIds = await getEnabledSnippetIds(this.app);
+      if (
+        !this.pendingAttachedSnippetPaths &&
+        this.selectedAttachedSnippets.length === 0 &&
+        enabledSnippetIds.size > 0
+      ) {
+        this.selectedAttachedSnippets = availableSnippets.filter((file) =>
+          enabledSnippetIds.has(snippetIdFromFile(file))
+        );
+      }
+
+      const snippetSearch = snippetSection.createEl("input", {
+        type: "text",
+        placeholder: "Search snippets...",
+        cls: "vault-hub-search-input",
+      });
+      snippetSearch.value = this.attachedSnippetSearchQuery;
+
+      if (availableSnippets.length === 0) {
+        snippetSection.createEl("p", {
+          text: "No CSS snippets found in .obsidian/snippets.",
+          cls: "vault-hub-hint",
+        });
+      } else {
+        const bulk = snippetSection.createDiv("vault-hub-bulk");
+        const selectAll = bulk.createEl("button", { text: "Select all" });
+        selectAll.type = "button";
+        const selectEnabled = bulk.createEl("button", { text: "Select enabled" });
+        selectEnabled.type = "button";
+        const clearAll = bulk.createEl("button", { text: "Clear" });
+        clearAll.type = "button";
+        const count = bulk.createSpan({ cls: "vault-hub-bulk-count" });
+
+        const snippetList = snippetSection.createDiv("vault-hub-file-list");
+        const emptySnippetSearch = snippetSection.createEl("p", {
+          text: "No snippets match that search.",
+          cls: "vault-hub-hint",
+        });
+        emptySnippetSearch.style.display = "none";
+
+        const renderBundleSnippetList = () => {
+          const needle = this.attachedSnippetSearchQuery.trim().toLowerCase();
+          const visibleSnippets = needle
+            ? availableSnippets.filter((file) => `${file.name} ${file.path}`.toLowerCase().includes(needle))
+            : availableSnippets;
+          const selectedSnippetPaths = new Set(this.selectedAttachedSnippets.map((file) => file.path));
+
+          snippetList.empty();
+          emptySnippetSearch.style.display = visibleSnippets.length === 0 ? "" : "none";
+          count.setText(`${this.selectedAttachedSnippets.length} / ${availableSnippets.length} selected`);
+
+          visibleSnippets.forEach((file) => {
+            const row = snippetList.createDiv("vault-hub-file-row");
+            const cb = row.createEl("input", { type: "checkbox" });
+            cb.checked = selectedSnippetPaths.has(file.path);
+            cb.addEventListener("change", () => {
+              if (cb.checked) {
+                if (!this.selectedAttachedSnippets.some((value) => value.path === file.path)) {
+                  this.selectedAttachedSnippets.push(file);
+                }
+              } else {
+                this.selectedAttachedSnippets = this.selectedAttachedSnippets.filter((x) => x.path !== file.path);
+              }
+              count.setText(`${this.selectedAttachedSnippets.length} / ${availableSnippets.length} selected`);
+            });
+
+            const label = row.createDiv("vault-hub-plugin-info");
+            label.createSpan({ text: file.path, cls: "vault-hub-plugin-name" });
+            if (enabledSnippetIds.has(snippetIdFromFile(file))) {
+              label.createSpan({ text: " (enabled)", cls: "vault-hub-auto-badge" });
+            }
+          });
+        };
+
+        selectAll.addEventListener("click", () => {
+          this.selectedAttachedSnippets = availableSnippets.slice();
+          renderBundleSnippetList();
+        });
+        selectEnabled.addEventListener("click", () => {
+          this.selectedAttachedSnippets = availableSnippets.filter((file) =>
+            enabledSnippetIds.has(snippetIdFromFile(file))
+          );
+          renderBundleSnippetList();
+        });
+        clearAll.addEventListener("click", () => {
+          this.selectedAttachedSnippets = [];
+          renderBundleSnippetList();
+        });
+        snippetSearch.addEventListener("input", () => {
+          this.attachedSnippetSearchQuery = snippetSearch.value;
+          renderBundleSnippetList();
+        });
+
+        renderBundleSnippetList();
+      }
     }
 
     this.addNav(c, null, null);

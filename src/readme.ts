@@ -74,7 +74,13 @@ export function generateReadme(data: ReadmeData): string {
   } else if (data.type === "vault") {
     lines.push("1. Download or clone this repo");
     lines.push("2. Open the folder as an Obsidian vault");
-    if (selected.length > 0) {
+    if (attachedSnippets.length > 0) {
+      lines.push("3. Copy the attached CSS snippet files into `.obsidian/snippets/`");
+      lines.push("4. Enable them in Settings > Appearance > CSS Snippets");
+      if (selected.length > 0) {
+        lines.push("5. Install or enable the required plugins listed above");
+      }
+    } else if (selected.length > 0) {
       lines.push("3. Install or enable the required plugins listed above");
     }
   } else {
