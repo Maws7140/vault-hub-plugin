@@ -966,24 +966,49 @@ var PublishModal = class extends import_obsidian2.Modal {
           this.checkedPlugins.add(p.id);
       });
     }
-    const list = c.createDiv("vault-hub-plugin-list");
-    this.allPlugins.forEach((p) => {
-      const row = list.createDiv("vault-hub-plugin-row");
-      const cb = row.createEl("input", { type: "checkbox" });
-      cb.checked = this.checkedPlugins.has(p.id);
-      cb.addEventListener("change", () => {
-        if (cb.checked)
-          this.checkedPlugins.add(p.id);
-        else
-          this.checkedPlugins.delete(p.id);
+    if (this.allPlugins.length > 0) {
+      const bulk = c.createDiv("vault-hub-bulk");
+      const selectAll = bulk.createEl("button", { text: "Select all" });
+      selectAll.type = "button";
+      selectAll.addEventListener("click", () => {
+        this.allPlugins.forEach((plugin) => this.checkedPlugins.add(plugin.id));
+        renderPluginList();
       });
-      const info = row.createDiv("vault-hub-plugin-info");
-      info.createSpan({ text: p.name, cls: "vault-hub-plugin-name" });
-      info.createSpan({ text: ` v${p.version}`, cls: "vault-hub-plugin-version" });
-      if (p.autoDetected) {
-        info.createSpan({ text: " (auto-detected)", cls: "vault-hub-auto-badge" });
-      }
-    });
+      const clearAll = bulk.createEl("button", { text: "Clear" });
+      clearAll.type = "button";
+      clearAll.addEventListener("click", () => {
+        this.checkedPlugins.clear();
+        renderPluginList();
+      });
+      const count = bulk.createSpan({ cls: "vault-hub-bulk-count" });
+      const updateCount = () => {
+        count.setText(`${this.checkedPlugins.size} / ${this.allPlugins.length} selected`);
+      };
+      const list = c.createDiv("vault-hub-plugin-list");
+      const renderPluginList = () => {
+        list.empty();
+        updateCount();
+        this.allPlugins.forEach((p) => {
+          const row = list.createDiv("vault-hub-plugin-row");
+          const cb = row.createEl("input", { type: "checkbox" });
+          cb.checked = this.checkedPlugins.has(p.id);
+          cb.addEventListener("change", () => {
+            if (cb.checked)
+              this.checkedPlugins.add(p.id);
+            else
+              this.checkedPlugins.delete(p.id);
+            updateCount();
+          });
+          const info = row.createDiv("vault-hub-plugin-info");
+          info.createSpan({ text: p.name, cls: "vault-hub-plugin-name" });
+          info.createSpan({ text: ` v${p.version}`, cls: "vault-hub-plugin-version" });
+          if (p.autoDetected) {
+            info.createSpan({ text: " (auto-detected)", cls: "vault-hub-auto-badge" });
+          }
+        });
+      };
+      renderPluginList();
+    }
     if (this.allPlugins.length === 0) {
       c.createEl("p", { text: "No community plugins installed.", cls: "vault-hub-hint" });
     }
@@ -1008,12 +1033,44 @@ var PublishModal = class extends import_obsidian2.Modal {
       t.inputEl.style.minHeight = "80px";
     });
     const cats = CATEGORIES[this.resourceType] || [];
-    new import_obsidian2.Setting(c).setName("Category").addDropdown((dd) => {
-      dd.addOption("", "Select...");
-      cats.forEach((cat) => dd.addOption(cat, cat));
-      dd.setValue(this.categories[0] || "");
-      dd.onChange((v) => this.categories = v ? [v] : []);
+    const categorySetting = new import_obsidian2.Setting(c).setName("Categories").setDesc("Pick one or more.");
+    const categoryControl = categorySetting.controlEl.createDiv("vault-hub-multi-select");
+    const categoryBulk = categoryControl.createDiv("vault-hub-bulk");
+    const selectAllCategories = categoryBulk.createEl("button", { text: "Select all" });
+    selectAllCategories.type = "button";
+    selectAllCategories.addEventListener("click", () => {
+      this.categories = [...cats];
+      renderCategoryList();
     });
+    const clearCategories = categoryBulk.createEl("button", { text: "Clear" });
+    clearCategories.type = "button";
+    clearCategories.addEventListener("click", () => {
+      this.categories = [];
+      renderCategoryList();
+    });
+    const categoryCount = categoryBulk.createSpan({ cls: "vault-hub-bulk-count" });
+    const categoryList = categoryControl.createDiv("vault-hub-checkbox-grid");
+    const renderCategoryList = () => {
+      categoryList.empty();
+      const selected = new Set(this.categories);
+      categoryCount.setText(`${selected.size} / ${cats.length} selected`);
+      cats.forEach((cat) => {
+        const row = categoryList.createEl("label", { cls: "vault-hub-checkbox-row" });
+        const cb = row.createEl("input", { type: "checkbox" });
+        cb.checked = selected.has(cat);
+        cb.addEventListener("change", () => {
+          if (cb.checked) {
+            if (!this.categories.includes(cat))
+              this.categories.push(cat);
+          } else {
+            this.categories = this.categories.filter((value) => value !== cat);
+          }
+          categoryCount.setText(`${this.categories.length} / ${cats.length} selected`);
+        });
+        row.createSpan({ text: cat });
+      });
+    };
+    renderCategoryList();
     new import_obsidian2.Setting(c).setName("Tags").setDesc("Comma-separated").addText((t) => {
       t.setPlaceholder("glass, blur, dark").setValue(this.tags);
       t.onChange((v) => this.tags = v);
@@ -1280,7 +1337,8 @@ var PublishModal = class extends import_obsidian2.Modal {
       c.createEl("h3", { text: "Published!" });
       c.createEl("p", { text: `Repository: ${repo.full_name}` });
       const vaultHubUrl = `https://obsidianvaulthub.com/r/${owner}/${rName}`;
-      const link = c.createEl("a", {
+      const actions = c.createDiv("vault-hub-success-actions");
+      const link = actions.createEl("a", {
         text: "Open pending page on Vault Hub",
         href: vaultHubUrl,
         cls: "mod-cta vault-hub-success-link"
@@ -1290,13 +1348,13 @@ var PublishModal = class extends import_obsidian2.Modal {
         text: refreshRequested ? "Catalog refresh requested. The listing should move from pending to indexed after the workflow finishes." : "Catalog refresh was not requested automatically. The listing may stay pending until the next scheduled refresh.",
         cls: "vault-hub-hint"
       });
-      const ghLink = c.createEl("a", {
+      const ghLink = actions.createEl("a", {
         text: "View on GitHub",
         href: repo.html_url,
         cls: "vault-hub-hint"
       });
       ghLink.setAttr("target", "_blank");
-      const closeBtn = c.createEl("button", { text: "Close", cls: "mod-cta" });
+      const closeBtn = actions.createEl("button", { text: "Close", cls: "mod-cta" });
       closeBtn.addEventListener("click", () => this.close());
       new import_obsidian2.Notice(`Published to ${repo.full_name}!`);
     } catch (e) {

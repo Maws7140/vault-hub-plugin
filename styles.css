@@ -138,6 +138,29 @@
   color: var(--text-muted);
 }
 
+.vault-hub-multi-select {
+  width: 100%;
+}
+
+.vault-hub-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.vault-hub-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  font-size: 0.9em;
+}
+
 /* File List */
 .vault-hub-file-list {
   max-height: 300px;
@@ -331,8 +354,15 @@
 /* Success link */
 .vault-hub-success-link {
   display: inline-block;
-  margin-top: 10px;
   text-decoration: none;
+}
+
+.vault-hub-success-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 6px;
 }
 
 /* Snippet Manager */
