@@ -11,6 +11,7 @@ import type VaultHubPlugin from "../main";
 import { DetectedPlugin, detectPlugins } from "../detection";
 import { GitHubAPI } from "../github";
 import { generateHubMd, HubMdData } from "../hubmd";
+import { getSnippetDirectory } from "../paths";
 import { generateReadme, ReadmeData, syncReadmeScreenshots } from "../readme";
 import type { PublishDraft } from "../settings";
 
@@ -60,7 +61,7 @@ function tfileToPublishFile(app: App, f: TFile): PublishFile {
 
 async function listSnippetFiles(app: App): Promise<PublishFile[]> {
   const adapter = app.vault.adapter;
-  const dir = ".obsidian/snippets";
+  const dir = getSnippetDirectory(app.vault);
   try {
     const exists = await adapter.exists(dir);
     if (!exists) return [];
@@ -171,6 +172,10 @@ export class PublishModal extends Modal {
   constructor(app: App, plugin: VaultHubPlugin) {
     super(app);
     this.plugin = plugin;
+  }
+
+  private getSnippetDir() {
+    return getSnippetDirectory(this.app.vault);
   }
 
   onOpen() {
@@ -361,7 +366,7 @@ export class PublishModal extends Modal {
     this.contentEl.addClass("vault-hub-modal");
 
     const header = this.contentEl.createDiv("vault-hub-header");
-    header.createEl("h2", { text: `Publish Resource — Step ${this.step} of 5` });
+    header.createEl("h2", { text: `Publish resource — Step ${this.step} of 5` });
     const progress = header.createDiv("vault-hub-progress");
     for (let i = 1; i <= 5; i++) {
       const dot = progress.createSpan("vault-hub-dot");
@@ -449,7 +454,7 @@ export class PublishModal extends Modal {
 
     if (this.resourceType === "snippet") {
       fileSection.createEl("p", {
-        text: "Sourced from .obsidian/snippets. Drop .css files there if nothing shows up.",
+        text: `Sourced from ${this.getSnippetDir()}. Drop .css files there if nothing shows up.`,
         cls: "vault-hub-hint",
       });
     } else {
@@ -463,7 +468,7 @@ export class PublishModal extends Modal {
       fileSection.createEl("p", {
         text:
           this.resourceType === "snippet"
-            ? "No CSS snippets found in .obsidian/snippets."
+            ? `No CSS snippets found in ${this.getSnippetDir()}.`
             : this.resourceType === "bundle"
             ? "No markdown files found in this vault."
             : "No markdown files found in this vault.",
@@ -557,7 +562,7 @@ export class PublishModal extends Modal {
 
       if (availableSnippets.length === 0) {
         snippetSection.createEl("p", {
-          text: "No CSS snippets found in .obsidian/snippets.",
+          text: `No CSS snippets found in ${this.getSnippetDir()}.`,
           cls: "vault-hub-hint",
         });
       } else {
@@ -620,7 +625,7 @@ export class PublishModal extends Modal {
 
   private async renderStep2() {
     const c = this.contentEl;
-    c.createEl("h4", { text: "Select Required Plugins" });
+    c.createEl("h4", { text: "Select required plugins" });
     c.createEl("p", {
       text: "Auto-detected plugins are pre-checked. Review and adjust.",
       cls: "vault-hub-hint",
@@ -723,7 +728,7 @@ export class PublishModal extends Modal {
 
       if (availableSnippets.length === 0) {
         snippetSection.createEl("p", {
-          text: "No CSS snippets found in .obsidian/snippets.",
+          text: `No CSS snippets found in ${this.getSnippetDir()}.`,
           cls: "vault-hub-hint",
         });
       } else {

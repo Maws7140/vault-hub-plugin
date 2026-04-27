@@ -1,21 +1,28 @@
+import { requestJson } from "./net";
+
 export class GitHubAPI {
   constructor(private token: string) {}
 
   private async request(path: string, options: RequestInit = {}) {
-    const res = await fetch(`https://api.github.com${path}`, {
-      ...options,
-      headers: {
-        Authorization: `token ${this.token}`,
-        Accept: "application/vnd.github.v3+json",
-        "Content-Type": "application/json",
-        ...options.headers,
-      },
-    });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`GitHub API ${res.status}: ${body}`);
+    try {
+      return await requestJson(`https://api.github.com${path}`, {
+        method: options.method,
+        body: typeof options.body === "string" ? options.body : undefined,
+        headers: {
+          Authorization: `token ${this.token}`,
+          Accept: "application/vnd.github.v3+json",
+          "Content-Type": "application/json",
+          ...(options.headers as Record<string, string> | undefined),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const httpMatch = message.match(/^HTTP (\d+):\s*([\s\S]*)$/);
+      if (httpMatch) {
+        throw new Error(`GitHub API ${httpMatch[1]}: ${httpMatch[2]}`);
+      }
+      throw error;
     }
-    return res.json();
   }
 
   private encodePath(path: string): string {

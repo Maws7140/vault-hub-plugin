@@ -1,5 +1,7 @@
 import { ItemView, WorkspaceLeaf, Notice } from "obsidian";
 import type VaultHubPlugin from "../main";
+import { requestJson, requestText } from "../net";
+import { getSnippetDirectory } from "../paths";
 
 export const VIEW_TYPE_BROWSE = "vault-hub-browse";
 
@@ -243,11 +245,10 @@ export class BrowseView extends ItemView {
         params.set("q", this.searchQuery.trim());
       }
 
-      const res = await fetch(`${baseUrl}/api/search?${params.toString()}`);
-
-      const data = await res.json();
-      if (!res.ok || !Array.isArray(data)) {
-        throw new Error(data?.error || data?.message || data?.hint || "Unexpected response from API");
+      const data = await requestJson<unknown>(`${baseUrl}/api/search?${params.toString()}`);
+      if (!Array.isArray(data)) {
+        const errorPayload = data as { error?: string; message?: string; hint?: string } | null;
+        throw new Error(errorPayload?.error || errorPayload?.message || errorPayload?.hint || "Unexpected response from API");
       }
       let resources = (data as Array<Omit<ResourceSummary, "type"> & { type: string }>).map((resource) =>
         normalizeResource(resource)
@@ -331,13 +332,12 @@ export class BrowseView extends ItemView {
 
   /** Download full vault tree into a named subfolder */
   private async installVault(r: ResourceSummary) {
-    const treeRes = await fetch(
+    const treeData = await requestJson<{ tree?: { path: string; type: string }[]; message?: string }>(
       `https://api.github.com/repos/${r.full_name}/git/trees/HEAD?recursive=1`,
       { headers: { Accept: "application/vnd.github.v3+json" } }
     );
-    const treeData = await treeRes.json();
 
-    if (!treeRes.ok || !Array.isArray(treeData.tree)) {
+    if (!Array.isArray(treeData.tree)) {
       throw new Error(treeData.message || "Failed to fetch repository tree");
     }
 
@@ -359,14 +359,13 @@ export class BrowseView extends ItemView {
       await this.ensureDir(dirPath);
 
       const rawUrl = `https://raw.githubusercontent.com/${r.full_name}/HEAD/${encodeGitHubPath(item.path)}`;
-      const raw = await fetch(rawUrl);
-      if (!raw.ok) {
+      try {
+        const raw = await requestText(rawUrl);
+        await this.app.vault.adapter.write(destPath, raw);
+        installed++;
+      } catch {
         failed++;
-        continue;
       }
-
-      await this.app.vault.adapter.write(destPath, await raw.text());
-      installed++;
     }
 
     new Notice(
@@ -421,9 +420,11 @@ export class BrowseView extends ItemView {
   }
 
   private async fetchHubMd(r: ResourceSummary): Promise<string | null> {
-    const raw = await fetch(`https://raw.githubusercontent.com/${r.full_name}/HEAD/hub.md`);
-    if (!raw.ok) return null;
-    return raw.text();
+    try {
+      return await requestText(`https://raw.githubusercontent.com/${r.full_name}/HEAD/hub.md`);
+    } catch {
+      return null;
+    }
   }
 
   private async notifyRequiredPluginsFromContent(hubMd: string, title: string) {
@@ -454,13 +455,12 @@ export class BrowseView extends ItemView {
 
   /** Download CSS files to .obsidian/snippets/ */
   private async installSnippet(r: ResourceSummary) {
-    const treeRes = await fetch(
+    const treeData = await requestJson<{ tree?: { path: string; type: string }[]; message?: string }>(
       `https://api.github.com/repos/${r.full_name}/git/trees/HEAD?recursive=1`,
       { headers: { Accept: "application/vnd.github.v3+json" } }
     );
-    const treeData = await treeRes.json();
 
-    if (!treeRes.ok || !Array.isArray(treeData.tree)) {
+    if (!Array.isArray(treeData.tree)) {
       throw new Error(treeData.message || "Failed to fetch repository tree");
     }
 
@@ -471,16 +471,15 @@ export class BrowseView extends ItemView {
       throw new Error("No CSS files found in this snippet repository");
     }
 
-    const snippetsDir = `${this.app.vault.configDir}/snippets`;
+    const snippetsDir = getSnippetDirectory(this.app.vault);
     if (!(await this.app.vault.adapter.exists(snippetsDir))) {
       await this.app.vault.adapter.mkdir(snippetsDir);
     }
 
     for (const f of cssFiles) {
-      const raw = await fetch(`https://raw.githubusercontent.com/${r.full_name}/HEAD/${encodeGitHubPath(f.path)}`);
-      if (!raw.ok) throw new Error(`Failed to download ${f.path}`);
+      const raw = await requestText(`https://raw.githubusercontent.com/${r.full_name}/HEAD/${encodeGitHubPath(f.path)}`);
       const target = await this.availablePath(`${snippetsDir}/${basename(f.path)}`);
-      await this.app.vault.adapter.write(target, await raw.text());
+      await this.app.vault.adapter.write(target, raw);
     }
 
     new Notice(
@@ -491,13 +490,12 @@ export class BrowseView extends ItemView {
   /** Download .md files into a named folder */
   private async installNotes(r: ResourceSummary) {
     const hubMd = await this.fetchHubMd(r);
-    const treeRes = await fetch(
+    const treeData = await requestJson<{ tree?: { path: string; type: string }[]; message?: string }>(
       `https://api.github.com/repos/${r.full_name}/git/trees/HEAD?recursive=1`,
       { headers: { Accept: "application/vnd.github.v3+json" } }
     );
-    const treeData = await treeRes.json();
 
-    if (!treeRes.ok || !Array.isArray(treeData.tree)) {
+    if (!Array.isArray(treeData.tree)) {
       throw new Error(treeData.message || "Failed to fetch repository tree");
     }
 
@@ -515,11 +513,10 @@ export class BrowseView extends ItemView {
     const folderName = await this.availableFolder(r.repo_name);
     let installed = 0;
     for (const f of mdFiles) {
-      const raw = await fetch(`https://raw.githubusercontent.com/${r.full_name}/HEAD/${encodeGitHubPath(f.path)}`);
-      if (!raw.ok) throw new Error(`Failed to download ${f.path}`);
+      const raw = await requestText(`https://raw.githubusercontent.com/${r.full_name}/HEAD/${encodeGitHubPath(f.path)}`);
       const destPath = `${folderName}/${f.path}`;
       await this.ensureDir(destPath.split("/").slice(0, -1).join("/"));
-      await this.app.vault.adapter.write(destPath, await raw.text());
+      await this.app.vault.adapter.write(destPath, raw);
       installed++;
     }
 
@@ -538,7 +535,7 @@ export class BrowseView extends ItemView {
     const attachedSnippets = parseAttachedSnippets(frontmatter);
     if (attachedSnippets.length === 0) return;
 
-    const snippetsDir = `${this.app.vault.configDir}/snippets`;
+    const snippetsDir = getSnippetDirectory(this.app.vault);
     if (!(await this.app.vault.adapter.exists(snippetsDir))) {
       await this.app.vault.adapter.mkdir(snippetsDir);
     }
@@ -548,15 +545,11 @@ export class BrowseView extends ItemView {
 
     for (const snippet of attachedSnippets) {
       try {
-        const raw = await fetch(
+        const raw = await requestText(
           `https://raw.githubusercontent.com/${r.full_name}/HEAD/${encodeGitHubPath(snippet.path)}`
         );
-        if (!raw.ok) {
-          failed++;
-          continue;
-        }
         const target = await this.availablePath(`${snippetsDir}/${basename(snippet.path)}`);
-        await this.app.vault.adapter.write(target, await raw.text());
+        await this.app.vault.adapter.write(target, raw);
         installed++;
       } catch {
         failed++;
@@ -578,7 +571,7 @@ export class BrowseView extends ItemView {
 
     container.empty();
 
-    const snippetsDir = `${this.app.vault.configDir}/snippets`;
+    const snippetsDir = getSnippetDirectory(this.app.vault);
     let files: string[] = [];
 
     try {

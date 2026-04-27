@@ -66,11 +66,11 @@ export class VaultHubSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "Vault Hub Settings" });
+    new Setting(containerEl).setName("Vault Hub").setHeading();
 
     new Setting(containerEl)
-      .setName("GitHub Personal Access Token")
-      .setDesc("Token used to create repos and push files. Requires 'repo' scope.")
+      .setName("GitHub personal access token")
+      .setDesc("Token used to create repos and push files. Requires the repo scope.")
       .addText((text) =>
         text
           .setPlaceholder("ghp_xxxxxxxxxxxx")
@@ -99,8 +99,8 @@ export class VaultHubSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Catalog Repository")
-      .setDesc("Repo that stores the website catalog workflow. Used to request a refresh after publish/update.")
+      .setName("Catalog repository")
+      .setDesc("Repository that stores the website catalog workflow. Used to request a refresh after publish or update.")
       .addText((text) =>
         text
           .setPlaceholder("Maws7140/vault-hub")
@@ -112,7 +112,7 @@ export class VaultHubSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Default Categories")
+      .setName("Default categories")
       .setDesc("Comma-separated list of default categories for new publications.")
       .addText((text) =>
         text

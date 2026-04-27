@@ -67,15 +67,13 @@ export function generateReadme(data: ReadmeData): string {
     lines.push(
       `1. Download \`${data.files[0]?.path || "snippet.css"}\` from this repo`
     );
-    lines.push(
-      "2. Place it in your vault's `.obsidian/snippets/` folder"
-    );
+    lines.push("2. Place it in your vault's CSS snippets folder");
     lines.push("3. Enable it in Settings > Appearance > CSS Snippets");
   } else if (data.type === "vault") {
     lines.push("1. Download or clone this repo");
     lines.push("2. Open the folder as an Obsidian vault");
     if (attachedSnippets.length > 0) {
-      lines.push("3. Copy the attached CSS snippet files into `.obsidian/snippets/`");
+      lines.push("3. Copy the attached CSS snippet files into your vault's CSS snippets folder");
       lines.push("4. Enable them in Settings > Appearance > CSS Snippets");
       if (selected.length > 0) {
         lines.push("5. Install or enable the required plugins listed above");
@@ -87,7 +85,7 @@ export function generateReadme(data: ReadmeData): string {
     lines.push("1. Download the `.md` file(s) from this repo");
     lines.push("2. Place them in your vault");
     if (attachedSnippets.length > 0) {
-      lines.push("3. Copy the attached CSS snippet files into `.obsidian/snippets/`");
+      lines.push("3. Copy the attached CSS snippet files into your vault's CSS snippets folder");
       lines.push("4. Enable them in Settings > Appearance > CSS Snippets");
       if (selected.length > 0) {
         lines.push("5. Install the required plugins listed above");

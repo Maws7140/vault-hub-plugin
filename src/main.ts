@@ -18,19 +18,19 @@ export default class VaultHubPlugin extends Plugin {
 
     this.addCommand({
       id: "publish-resource",
-      name: "Publish Resource",
+      name: "Publish resource",
       callback: () => new PublishModal(this.app, this).open(),
     });
 
     this.addCommand({
       id: "update-resource",
-      name: "Update Resource",
+      name: "Update resource",
       callback: () => new UpdateModal(this.app, this).open(),
     });
 
     this.addCommand({
       id: "browse-resources",
-      name: "Browse Resources",
+      name: "Browse resources",
       callback: () => this.activateBrowseView(),
     });
 

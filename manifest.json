@@ -5,5 +5,6 @@
   "minAppVersion": "1.0.0",
   "description": "Publish CSS snippets, notes, and templates to the Vault Hub community platform.",
   "author": "Maws7140",
-  "isDesktopOnly": false
+  "authorUrl": "https://github.com/Maws7140",
+  "isDesktopOnly": true
 }

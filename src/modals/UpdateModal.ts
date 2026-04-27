@@ -41,7 +41,7 @@ export class UpdateModal extends Modal {
     const c = this.contentEl;
     c.empty();
     c.addClass("vault-hub-modal");
-    c.createEl("h2", { text: "Update Resource" });
+    c.createEl("h2", { text: "Update resource" });
 
     const loading = c.createEl("p", { text: "Loading resources...", cls: "vault-hub-hint" });
     const resources = await this.getSelectableResources();
@@ -123,7 +123,7 @@ export class UpdateModal extends Modal {
   private renderDiff() {
     const c = this.contentEl;
     c.empty();
-    c.createEl("h2", { text: "Review Changes" });
+    c.createEl("h2", { text: "Review changes" });
     c.createEl("p", { text: this.selected!.repoFullName, cls: "vault-hub-hint" });
 
     const changed = this.files.filter((f) => f.status === "changed");
