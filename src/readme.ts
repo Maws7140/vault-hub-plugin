@@ -44,7 +44,7 @@ export function generateReadme(data: ReadmeData): string {
     lines.push("");
     attachedSnippets.forEach((snippet) => {
       lines.push(
-        `- \`${snippet.path}\`${snippet.optional ? " (optional)" : ""}${snippet.name ? ` — ${snippet.name}` : ""}`
+        `- \`${snippet.path}\`${snippet.optional ? " (optional)" : ""}${snippet.name ? ` - ${snippet.name}` : ""}`
       );
     });
     lines.push("");

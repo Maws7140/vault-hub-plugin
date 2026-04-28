@@ -366,7 +366,7 @@ export class PublishModal extends Modal {
     this.contentEl.addClass("vault-hub-modal");
 
     const header = this.contentEl.createDiv("vault-hub-header");
-    header.createEl("h2", { text: `Publish resource — Step ${this.step} of 5` });
+    header.createEl("h2", { text: `Publish resource - step ${this.step} of 5` });
     const progress = header.createDiv("vault-hub-progress");
     for (let i = 1; i <= 5; i++) {
       const dot = progress.createSpan("vault-hub-dot");
@@ -400,11 +400,11 @@ export class PublishModal extends Modal {
     const c = this.contentEl;
 
     new Setting(c)
-      .setName("Resource Type")
+      .setName("Resource type")
       .addDropdown((dd: DropdownComponent) => {
-        dd.addOption("snippet", "CSS Snippet");
-        dd.addOption("note", "Note / Template / Dashboard");
-        dd.addOption("bundle", "Vault / Multi-file Template");
+        dd.addOption("snippet", "CSS snippet");
+        dd.addOption("note", "Note / template / dashboard");
+        dd.addOption("bundle", "Vault / multi-file template");
         dd.setValue(this.resourceType);
         dd.onChange((v: string) => {
           this.resourceType = v as ResourceType;
@@ -812,7 +812,7 @@ export class PublishModal extends Modal {
     const c = this.contentEl;
 
     new Setting(c).setName("Name").addText((t) => {
-      t.setPlaceholder("My Resource").setValue(this.name);
+      t.setPlaceholder("My resource").setValue(this.name);
       t.onChange((v: string) => (this.name = v));
       t.inputEl.style.width = "100%";
     });
@@ -948,7 +948,7 @@ export class PublishModal extends Modal {
     void renderScreenshotList();
 
     if (this.resourceType === "snippet") {
-      new Setting(c).setName("Compatible Themes").addDropdown((dd: DropdownComponent) => {
+      new Setting(c).setName("Compatible themes").addDropdown((dd: DropdownComponent) => {
         dd.addOption("any", "Any theme");
         ["minimal", "velocity", "obsidian-default", "catppuccin"].forEach((t) =>
           dd.addOption(t, t)
@@ -987,7 +987,7 @@ export class PublishModal extends Modal {
 
   private renderStep5() {
     const c = this.contentEl;
-    c.createEl("h4", { text: "Review & Publish" });
+    c.createEl("h4", { text: "Review & publish" });
     const publishedType = this.getPublishedType();
 
     const summary = c.createDiv("vault-hub-summary");
@@ -1227,7 +1227,7 @@ export class PublishModal extends Modal {
       c.empty();
       c.createEl("h3", { text: "Error" });
       c.createEl("p", { text: String(e) });
-      const retryBtn = c.createEl("button", { text: "Back to Review" });
+      const retryBtn = c.createEl("button", { text: "Back to review" });
       retryBtn.addEventListener("click", () => {
         this.step = 5;
         this.renderStep();

@@ -66,8 +66,6 @@ export class VaultHubSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    new Setting(containerEl).setName("Vault Hub").setHeading();
-
     new Setting(containerEl)
       .setName("GitHub personal access token")
       .setDesc("Token used to create repos and push files. Requires the repo scope.")
@@ -77,7 +75,7 @@ export class VaultHubSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.githubToken)
           .then((t) => {
             t.inputEl.type = "password";
-            t.inputEl.style.width = "300px";
+            t.inputEl.addClass("vault-hub-text-input-wide");
           })
           .onChange(async (value) => {
             this.plugin.settings.githubToken = value;

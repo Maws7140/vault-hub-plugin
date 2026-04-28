@@ -47,11 +47,10 @@ var VaultHubSettingTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("Vault Hub").setHeading();
     new import_obsidian.Setting(containerEl).setName("GitHub personal access token").setDesc("Token used to create repos and push files. Requires the repo scope.").addText(
       (text) => text.setPlaceholder("ghp_xxxxxxxxxxxx").setValue(this.plugin.settings.githubToken).then((t) => {
         t.inputEl.type = "password";
-        t.inputEl.style.width = "300px";
+        t.inputEl.addClass("vault-hub-text-input-wide");
       }).onChange(async (value) => {
         this.plugin.settings.githubToken = value;
         await this.plugin.saveSettings();
@@ -324,7 +323,7 @@ var GitHubAPI = class {
   async getAvailableRepoName(owner, baseName) {
     let candidate = baseName;
     let suffix = 2;
-    while (true) {
+    for (let attempt = 0; attempt < 100; attempt++) {
       try {
         await this.getRepo(owner, candidate);
         candidate = `${baseName}-${suffix}`;
@@ -335,6 +334,7 @@ var GitHubAPI = class {
         throw error;
       }
     }
+    throw new Error(`Could not find an available repo name based on "${baseName}".`);
   }
   async dispatchRepositoryEvent(owner, repo, eventType, clientPayload) {
     return this.request(`/repos/${owner}/${repo}/dispatches`, {
@@ -449,7 +449,7 @@ function generateReadme(data) {
     lines.push("");
     attachedSnippets.forEach((snippet) => {
       lines.push(
-        `- \`${snippet.path}\`${snippet.optional ? " (optional)" : ""}${snippet.name ? ` \u2014 ${snippet.name}` : ""}`
+        `- \`${snippet.path}\`${snippet.optional ? " (optional)" : ""}${snippet.name ? ` - ${snippet.name}` : ""}`
       );
     });
     lines.push("");
@@ -829,7 +829,7 @@ var PublishModal = class extends import_obsidian4.Modal {
     this.contentEl.empty();
     this.contentEl.addClass("vault-hub-modal");
     const header = this.contentEl.createDiv("vault-hub-header");
-    header.createEl("h2", { text: `Publish resource \u2014 Step ${this.step} of 5` });
+    header.createEl("h2", { text: `Publish resource - step ${this.step} of 5` });
     const progress = header.createDiv("vault-hub-progress");
     for (let i = 1; i <= 5; i++) {
       const dot = progress.createSpan("vault-hub-dot");
@@ -870,10 +870,10 @@ var PublishModal = class extends import_obsidian4.Modal {
   }
   async renderStep1() {
     const c = this.contentEl;
-    new import_obsidian4.Setting(c).setName("Resource Type").addDropdown((dd) => {
-      dd.addOption("snippet", "CSS Snippet");
-      dd.addOption("note", "Note / Template / Dashboard");
-      dd.addOption("bundle", "Vault / Multi-file Template");
+    new import_obsidian4.Setting(c).setName("Resource type").addDropdown((dd) => {
+      dd.addOption("snippet", "CSS snippet");
+      dd.addOption("note", "Note / template / dashboard");
+      dd.addOption("bundle", "Vault / multi-file template");
       dd.setValue(this.resourceType);
       dd.onChange((v) => {
         this.resourceType = v;
@@ -1223,7 +1223,7 @@ var PublishModal = class extends import_obsidian4.Modal {
   renderStep3() {
     const c = this.contentEl;
     new import_obsidian4.Setting(c).setName("Name").addText((t) => {
-      t.setPlaceholder("My Resource").setValue(this.name);
+      t.setPlaceholder("My resource").setValue(this.name);
       t.onChange((v) => this.name = v);
       t.inputEl.style.width = "100%";
     });
@@ -1342,7 +1342,7 @@ var PublishModal = class extends import_obsidian4.Modal {
     });
     void renderScreenshotList();
     if (this.resourceType === "snippet") {
-      new import_obsidian4.Setting(c).setName("Compatible Themes").addDropdown((dd) => {
+      new import_obsidian4.Setting(c).setName("Compatible themes").addDropdown((dd) => {
         dd.addOption("any", "Any theme");
         ["minimal", "velocity", "obsidian-default", "catppuccin"].forEach(
           (t) => dd.addOption(t, t)
@@ -1376,7 +1376,7 @@ var PublishModal = class extends import_obsidian4.Modal {
   }
   renderStep5() {
     const c = this.contentEl;
-    c.createEl("h4", { text: "Review & Publish" });
+    c.createEl("h4", { text: "Review & publish" });
     const publishedType = this.getPublishedType();
     const summary = c.createDiv("vault-hub-summary");
     summary.createEl("p", { text: `Type: ${publishedType}${this.resourceType === "bundle" ? " (multi-file)" : ""}` });
@@ -1576,7 +1576,7 @@ var PublishModal = class extends import_obsidian4.Modal {
       c.empty();
       c.createEl("h3", { text: "Error" });
       c.createEl("p", { text: String(e) });
-      const retryBtn = c.createEl("button", { text: "Back to Review" });
+      const retryBtn = c.createEl("button", { text: "Back to review" });
       retryBtn.addEventListener("click", () => {
         this.step = 5;
         this.renderStep();
@@ -1740,7 +1740,7 @@ var UpdateModal = class extends import_obsidian5.Modal {
     loading.remove();
     if (resources.length === 0) {
       c.createEl("p", {
-        text: "No published resources yet \u2014 publish one first.",
+        text: "No published resources yet - publish one first.",
         cls: "vault-hub-hint"
       });
       return;
@@ -1748,14 +1748,14 @@ var UpdateModal = class extends import_obsidian5.Modal {
     new import_obsidian5.Setting(c).setName("Resource").addDropdown((dd) => {
       dd.addOption("", "Select...");
       resources.forEach((r, i) => {
-        const suffix = this.hasLocalMappings(r) ? "" : " \u2014 GitHub only";
-        dd.addOption(String(i), `${r.repoFullName} (${r.type}) \u2014 ${timeAgo(new Date(r.lastPublishedAt))}${suffix}`);
+        const suffix = this.hasLocalMappings(r) ? "" : " - GitHub only";
+        dd.addOption(String(i), `${r.repoFullName} (${r.type}) - ${timeAgo(new Date(r.lastPublishedAt))}${suffix}`);
       });
       dd.onChange((v) => {
         this.selected = v ? resources[parseInt(v)] : null;
       });
     });
-    const btn = c.createEl("button", { text: "Check for Changes", cls: "mod-cta" });
+    const btn = c.createEl("button", { text: "Check for changes", cls: "mod-cta" });
     btn.style.marginTop = "12px";
     btn.addEventListener("click", async () => {
       if (!this.selected) {
@@ -1803,7 +1803,7 @@ var UpdateModal = class extends import_obsidian5.Modal {
     } catch (e) {
       new import_obsidian5.Notice(`Error: ${e}`);
       triggerBtn.disabled = false;
-      triggerBtn.setText("Check for Changes");
+      triggerBtn.setText("Check for changes");
     }
   }
   renderDiff() {

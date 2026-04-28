@@ -49,7 +49,7 @@ export class UpdateModal extends Modal {
 
     if (resources.length === 0) {
       c.createEl("p", {
-        text: "No published resources yet — publish one first.",
+        text: "No published resources yet - publish one first.",
         cls: "vault-hub-hint",
       });
       return;
@@ -58,15 +58,15 @@ export class UpdateModal extends Modal {
     new Setting(c).setName("Resource").addDropdown((dd) => {
       dd.addOption("", "Select...");
       resources.forEach((r, i) => {
-        const suffix = this.hasLocalMappings(r) ? "" : " — GitHub only";
-        dd.addOption(String(i), `${r.repoFullName} (${r.type}) — ${timeAgo(new Date(r.lastPublishedAt))}${suffix}`);
+        const suffix = this.hasLocalMappings(r) ? "" : " - GitHub only";
+        dd.addOption(String(i), `${r.repoFullName} (${r.type}) - ${timeAgo(new Date(r.lastPublishedAt))}${suffix}`);
       });
       dd.onChange((v) => {
         this.selected = v ? resources[parseInt(v)] : null;
       });
     });
 
-    const btn = c.createEl("button", { text: "Check for Changes", cls: "mod-cta" });
+    const btn = c.createEl("button", { text: "Check for changes", cls: "mod-cta" });
     btn.style.marginTop = "12px";
     btn.addEventListener("click", async () => {
       if (!this.selected) { new Notice("Select a resource first"); return; }
@@ -116,7 +116,7 @@ export class UpdateModal extends Modal {
     } catch (e) {
       new Notice(`Error: ${e}`);
       triggerBtn.disabled = false;
-      triggerBtn.setText("Check for Changes");
+      triggerBtn.setText("Check for changes");
     }
   }
 

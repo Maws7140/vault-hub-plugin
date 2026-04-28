@@ -1,5 +1,10 @@
 /* Vault Hub Plugin Styles */
 
+/* Settings */
+.vault-hub-text-input-wide {
+  width: 300px;
+}
+
 /* Browse View */
 .vault-hub-browse {
   padding: 12px;

@@ -214,7 +214,7 @@ export class GitHubAPI {
   async getAvailableRepoName(owner: string, baseName: string): Promise<string> {
     let candidate = baseName;
     let suffix = 2;
-    while (true) {
+    for (let attempt = 0; attempt < 100; attempt++) {
       try {
         await this.getRepo(owner, candidate);
         candidate = `${baseName}-${suffix}`;
@@ -224,6 +224,7 @@ export class GitHubAPI {
         throw error;
       }
     }
+    throw new Error(`Could not find an available repo name based on "${baseName}".`);
   }
 
   async dispatchRepositoryEvent(owner: string, repo: string, eventType: string, clientPayload?: unknown) {
