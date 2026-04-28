@@ -59,10 +59,8 @@ Publishing creates or updates a GitHub repository under your account and writes 
 
 - **Account requirement:** GitHub account and personal access token required for publish and update flows.
 - **Network use:** Calls GitHub APIs, raw GitHub content URLs, and the configured Vault Hub website.
-- **External file access:** Reads and writes files inside the current vault and its configuration directory.
-- **Telemetry:** None.
-- **Ads:** None.
-- **Payments:** None.
+- **Access:** Reads and writes files inside the current vault and its configuration directory.
+
 
 ## License
 
