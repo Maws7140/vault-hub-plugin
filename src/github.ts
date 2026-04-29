@@ -3,7 +3,7 @@ import { requestJson } from "./net";
 export class GitHubAPI {
   constructor(private token: string) {}
 
-  private async request(path: string, options: RequestInit = {}) {
+  private async request<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
     try {
       return await requestJson(`https://api.github.com${path}`, {
         method: options.method,
@@ -30,7 +30,7 @@ export class GitHubAPI {
   }
 
   async getUser(): Promise<{ login: string; avatar_url: string }> {
-    return this.request("/user");
+    return this.request<{ login: string; avatar_url: string }>("/user");
   }
 
   async listAuthenticatedRepos(): Promise<
@@ -38,9 +38,9 @@ export class GitHubAPI {
   > {
     const repos: { full_name: string; name: string; updated_at: string }[] = [];
     for (let page = 1; page <= 5; page++) {
-      const batch = await this.request(
+      const batch = await this.request<{ full_name: string; name: string; updated_at: string }[]>(
         `/user/repos?per_page=100&page=${page}&affiliation=owner&sort=updated`
-      ) as { full_name: string; name: string; updated_at: string }[];
+      );
       if (!Array.isArray(batch) || batch.length === 0) break;
       repos.push(...batch);
       if (batch.length < 100) break;
@@ -52,7 +52,7 @@ export class GitHubAPI {
     name: string,
     description: string
   ): Promise<{ full_name: string; html_url: string }> {
-    return this.request("/user/repos", {
+    return this.request<{ full_name: string; html_url: string }>("/user/repos", {
       method: "POST",
       body: JSON.stringify({
         name,
@@ -103,7 +103,7 @@ export class GitHubAPI {
     path: string
   ): Promise<string | null> {
     try {
-      const data = await this.request(
+      const data = await this.request<{ sha?: unknown }>(
         `/repos/${owner}/${repo}/contents/${this.encodePath(path)}`
       );
       return typeof data?.sha === "string" ? data.sha : null;
@@ -176,7 +176,7 @@ export class GitHubAPI {
     path: string
   ): Promise<{ sha: string; content: string } | null> {
     try {
-      const data = await this.request(
+      const data = await this.request<{ sha: string; content: string }>(
         `/repos/${owner}/${repo}/contents/${this.encodePath(path)}`
       );
       return { sha: data.sha, content: decodeURIComponent(escape(atob(data.content.replace(/\s/g, "")))) };
@@ -190,7 +190,9 @@ export class GitHubAPI {
     owner: string,
     repo: string
   ): Promise<{ path: string; sha: string; download_url: string; type: string }[]> {
-    const data = await this.request(`/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`);
+    const data = await this.request<{
+      tree?: { path: string; sha: string; type: string }[];
+    }>(`/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`);
     if (!Array.isArray(data.tree)) return [];
 
     return data.tree
@@ -208,7 +210,7 @@ export class GitHubAPI {
   }
 
   async getRepo(owner: string, repo: string): Promise<{ full_name: string }> {
-    return this.request(`/repos/${owner}/${repo}`);
+    return this.request<{ full_name: string }>(`/repos/${owner}/${repo}`);
   }
 
   async getAvailableRepoName(owner: string, baseName: string): Promise<string> {
