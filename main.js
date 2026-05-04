@@ -2281,9 +2281,9 @@ var BrowseView = class extends import_obsidian6.ItemView {
     }
     const typeColors = {
       vault: "#7f6df2",
-      snippet: "#22d3ee",
+      snippet: "#0e9aab",
       note: "#fb923c",
-      dashboard: "#4ade80"
+      dashboard: "#16a34a"
     };
     this.resources.forEach((r) => {
       const displayKind = getDisplayKind(r);

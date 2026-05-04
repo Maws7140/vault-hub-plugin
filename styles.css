@@ -418,8 +418,8 @@
 }
 
 .vault-hub-snippet-toggle.on {
-  color: var(--text-success);
-  background: var(--background-modifier-success);
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.15);
 }
 
 .vault-hub-snippet-delete {
