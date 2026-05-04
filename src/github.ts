@@ -1,5 +1,19 @@
 import { requestJson } from "./net";
 
+function encodeUtf8ToBase64(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+function decodeBase64ToUtf8(input: string): string {
+  const binary = atob(input);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
 export class GitHubAPI {
   constructor(private token: string) {}
 
@@ -15,11 +29,13 @@ export class GitHubAPI {
           ...(options.headers as Record<string, string> | undefined),
         },
       });
-    } catch (error) {
+    } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       const httpMatch = message.match(/^HTTP (\d+):\s*([\s\S]*)$/);
       if (httpMatch) {
-        throw new Error(`GitHub API ${httpMatch[1]}: ${httpMatch[2]}`);
+        const wrapped = new Error(`GitHub API ${httpMatch[1]}: ${httpMatch[2]}`);
+        (wrapped as Error & { cause?: unknown }).cause = error;
+        throw wrapped;
       }
       throw error;
     }
@@ -77,7 +93,7 @@ export class GitHubAPI {
     content: string,
     message: string
   ) {
-    const encoded = btoa(unescape(encodeURIComponent(content)));
+    const encoded = encodeUtf8ToBase64(content);
     return this.request(`/repos/${owner}/${repo}/contents/${this.encodePath(path)}`, {
       method: "PUT",
       body: JSON.stringify({ message, content: encoded }),
@@ -121,7 +137,7 @@ export class GitHubAPI {
     message: string,
     sha: string
   ) {
-    const encoded = btoa(unescape(encodeURIComponent(content)));
+    const encoded = encodeUtf8ToBase64(content);
     return this.request(`/repos/${owner}/${repo}/contents/${this.encodePath(path)}`, {
       method: "PUT",
       body: JSON.stringify({ message, content: encoded, sha }),
@@ -179,7 +195,7 @@ export class GitHubAPI {
       const data = await this.request<{ sha: string; content: string }>(
         `/repos/${owner}/${repo}/contents/${this.encodePath(path)}`
       );
-      return { sha: data.sha, content: decodeURIComponent(escape(atob(data.content.replace(/\s/g, "")))) };
+      return { sha: data.sha, content: decodeBase64ToUtf8(data.content.replace(/\s/g, "")) };
     } catch (error) {
       if (String(error).includes("GitHub API 404")) return null;
       throw error;

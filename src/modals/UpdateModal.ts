@@ -67,11 +67,11 @@ export class UpdateModal extends Modal {
     });
 
     const btn = c.createEl("button", { text: "Check for changes", cls: "mod-cta" });
-    btn.style.marginTop = "12px";
-    btn.addEventListener("click", async () => {
+    btn.addClass("vault-hub-update-status");
+    btn.addEventListener("click", () => {
       if (!this.selected) { new Notice("Select a resource first"); return; }
       if (!this.plugin.settings.githubToken) { new Notice("Set your GitHub token in settings"); return; }
-      await this.loadDiff(btn);
+      void this.loadDiff(btn);
     });
   }
 
@@ -169,7 +169,7 @@ export class UpdateModal extends Modal {
         text: `Push ${changed.length} Change${changed.length !== 1 ? "s" : ""}`,
         cls: "mod-cta",
       });
-      pushBtn.addEventListener("click", () => this.doPush(changed));
+      pushBtn.addEventListener("click", () => void this.doPush(changed));
     }
   }
 
@@ -227,14 +227,14 @@ export class UpdateModal extends Modal {
 
       const [rOwner, rName] = this.selected!.repoFullName.split("/");
       const link = c.createEl("a", {
-        text: "View on Vault Hub",
+        text: "View on vault hub",
         href: `https://obsidianvaulthub.com/r/${rOwner}/${rName}`,
         cls: "mod-cta vault-hub-success-link",
       });
       link.setAttr("target", "_blank");
 
       const closeBtn = c.createEl("button", { text: "Close" });
-      closeBtn.style.marginTop = "12px";
+      closeBtn.addClass("vault-hub-update-status");
       closeBtn.addEventListener("click", () => this.close());
 
       new Notice(`Pushed ${pushed} file(s)!`);

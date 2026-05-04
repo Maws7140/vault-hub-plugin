@@ -71,6 +71,7 @@ export class VaultHubSettingTab extends PluginSettingTab {
       .setDesc("Token used to create repos and push files. Requires the repo scope.")
       .addText((text) =>
         text
+          // eslint-disable-next-line obsidianmd/ui/sentence-case
           .setPlaceholder("ghp_xxxxxxxxxxxx")
           .setValue(this.plugin.settings.githubToken)
           .then((t) => {
@@ -84,8 +85,8 @@ export class VaultHubSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Vault Hub URL")
-      .setDesc("URL of the Vault Hub website.")
+      .setName("Vault hub URL")
+      .setDesc("URL of the vault hub website.")
       .addText((text) =>
         text
           .setPlaceholder("https://obsidianvaulthub.com")
@@ -114,7 +115,7 @@ export class VaultHubSettingTab extends PluginSettingTab {
       .setDesc("Comma-separated list of default categories for new publications.")
       .addText((text) =>
         text
-          .setPlaceholder("appearance, workflow")
+          .setPlaceholder("Appearance, workflow")
           .setValue(this.plugin.settings.defaultCategories.join(", "))
           .onChange(async (value) => {
             this.plugin.settings.defaultCategories = value

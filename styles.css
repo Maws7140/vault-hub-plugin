@@ -441,3 +441,30 @@
   border-radius: 6px;
   cursor: pointer;
 }
+
+/* Utility helpers used to replace inline styles */
+.vault-hub-discard-btn {
+  margin-left: 8px;
+}
+
+.vault-hub-hidden {
+  display: none;
+}
+
+.vault-hub-input-full {
+  width: 100%;
+}
+
+.vault-hub-textarea-tall {
+  width: 100%;
+  min-height: 80px;
+}
+
+.vault-hub-textarea-short {
+  width: 100%;
+  min-height: 72px;
+}
+
+.vault-hub-update-status {
+  margin-top: 12px;
+}

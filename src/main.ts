@@ -36,15 +36,16 @@ export default class VaultHubPlugin extends Plugin {
 
     this.addSettingTab(new VaultHubSettingTab(this.app, this));
 
-    this.addRibbonIcon("globe", "Vault Hub", () => {
-      this.activateBrowseView();
+    this.addRibbonIcon("globe", "Vault hub", () => {
+      void this.activateBrowseView();
     });
   }
 
   onunload() {}
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    const data = (await this.loadData()) as Partial<VaultHubSettings> | null;
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data ?? {});
   }
 
   async saveSettings() {
@@ -62,7 +63,7 @@ export default class VaultHubPlugin extends Plugin {
       }
     }
     if (leaf) {
-      workspace.revealLeaf(leaf);
+      void workspace.revealLeaf(leaf);
     }
   }
 }

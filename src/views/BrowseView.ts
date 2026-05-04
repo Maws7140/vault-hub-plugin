@@ -1,4 +1,4 @@
-import { ItemView, WorkspaceLeaf, Notice } from "obsidian";
+import { ItemView, WorkspaceLeaf, Notice, Modal, App } from "obsidian";
 import type VaultHubPlugin from "../main";
 import { requestJson, requestText } from "../net";
 import { getSnippetDirectory } from "../paths";
@@ -31,6 +31,36 @@ type TypeFilter = typeof TYPE_FILTERS[number];
 
 function normalizeToken(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+}
+
+class ConfirmModal extends Modal {
+  private result = false;
+  constructor(app: App, private message: string, private onResolve: (ok: boolean) => void) {
+    super(app);
+  }
+
+  onOpen() {
+    this.contentEl.createEl("p", { text: this.message });
+    const buttons = this.contentEl.createDiv("vault-hub-nav");
+    const cancel = buttons.createEl("button", { text: "Cancel" });
+    cancel.addEventListener("click", () => this.close());
+    const confirm = buttons.createEl("button", { text: "Confirm", cls: "mod-cta" });
+    confirm.addEventListener("click", () => {
+      this.result = true;
+      this.close();
+    });
+  }
+
+  onClose() {
+    this.contentEl.empty();
+    this.onResolve(this.result);
+  }
+}
+
+function confirmModal(app: App, message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    new ConfirmModal(app, message, resolve).open();
+  });
 }
 
 function hasDashboardMarker(values?: string[] | null): boolean {
@@ -146,7 +176,7 @@ export class BrowseView extends ItemView {
   }
 
   getViewType(): string { return VIEW_TYPE_BROWSE; }
-  getDisplayText(): string { return "Vault Hub"; }
+  getDisplayText(): string { return "Vault hub"; }
   getIcon(): string { return "globe"; }
 
   async onOpen() {
@@ -177,11 +207,11 @@ export class BrowseView extends ItemView {
         text: tab === "browse" ? "Browse" : "Snippets",
         cls: `vault-hub-tab${this.activeTab === tab ? " active" : ""}`,
       });
-      btn.addEventListener("click", async () => {
+      btn.addEventListener("click", () => {
         if (this.activeTab === tab) return;
         this.activeTab = tab;
         this.render();
-        await this.loadActiveTab();
+        void this.loadActiveTab();
       });
     });
 
@@ -195,10 +225,10 @@ export class BrowseView extends ItemView {
       input.value = this.searchQuery;
       input.addEventListener("input", () => { this.searchQuery = input.value; });
       input.addEventListener("keydown", (e: KeyboardEvent) => {
-        if (e.key === "Enter") this.loadResources();
+        if (e.key === "Enter") void this.loadResources();
       });
       const searchBtn = searchRow.createEl("button", { text: "Search" });
-      searchBtn.addEventListener("click", () => this.loadResources());
+      searchBtn.addEventListener("click", () => void this.loadResources());
 
       // Type filter tabs
       const typeRow = c.createDiv("vault-hub-type-filters");
@@ -210,12 +240,12 @@ export class BrowseView extends ItemView {
         if (type !== "all") {
           btn.dataset.type = type;
         }
-        btn.addEventListener("click", async () => {
+        btn.addEventListener("click", () => {
           this.filterType = type;
           // Update active state without full re-render
           typeRow.querySelectorAll(".vault-hub-type-filter").forEach((b) => b.removeClass("active"));
           btn.addClass("active");
-          await this.loadResources();
+          void this.loadResources();
         });
       });
 
@@ -228,7 +258,7 @@ export class BrowseView extends ItemView {
   // ─── BROWSE TAB ───────────────────────────────────────────────
 
   private async loadResources() {
-    const resultsEl = this.contentEl.querySelector(".vault-hub-results") as HTMLElement | null;
+    const resultsEl = this.contentEl.querySelector<HTMLElement>(".vault-hub-results");
     if (!resultsEl) return;
 
     resultsEl.empty();
@@ -299,7 +329,7 @@ export class BrowseView extends ItemView {
       const actions = card.createDiv("vault-hub-result-actions");
 
       const installBtn = actions.createEl("button", { text: "Install" });
-      installBtn.addEventListener("click", () => this.installResource(r, installBtn));
+      installBtn.addEventListener("click", () => void this.installResource(r, installBtn));
 
       const ghBtn = actions.createEl("button", { text: "GitHub" });
       ghBtn.addEventListener("click", () => {
@@ -566,13 +596,13 @@ export class BrowseView extends ItemView {
   // ─── SNIPPET MANAGER ─────────────────────────────────────────
 
   private async renderSnippetManager() {
-    const container = this.contentEl.querySelector(".vault-hub-snippets-container") as HTMLElement | null;
+    const container = this.contentEl.querySelector<HTMLElement>(".vault-hub-snippets-container");
     if (!container) return;
 
     container.empty();
 
     const snippetsDir = getSnippetDirectory(this.app.vault);
-    let files: string[] = [];
+    let files: string[];
 
     try {
       const listing = await this.app.vault.adapter.list(snippetsDir);
@@ -594,7 +624,8 @@ export class BrowseView extends ItemView {
       const raw = await this.app.vault.adapter.read(
         `${this.app.vault.configDir}/appearance.json`
       );
-      enabledSnippets = JSON.parse(raw)?.enabledCssSnippets || [];
+      const parsed = JSON.parse(raw) as { enabledCssSnippets?: string[] } | null;
+      enabledSnippets = parsed?.enabledCssSnippets ?? [];
     } catch {
       // appearance.json may not exist
     }
@@ -614,21 +645,25 @@ export class BrowseView extends ItemView {
         text: isEnabled ? "Enabled" : "Disabled",
         cls: `vault-hub-snippet-toggle${isEnabled ? " on" : ""}`,
       });
-      toggleBtn.addEventListener("click", async () => {
-        await this.setSnippetEnabled(snippetId, !isEnabled);
-        await this.renderSnippetManager();
+      toggleBtn.addEventListener("click", () => {
+        void (async () => {
+          await this.setSnippetEnabled(snippetId, !isEnabled);
+          await this.renderSnippetManager();
+        })();
       });
 
       const deleteBtn = actions.createEl("button", {
         text: "Delete",
         cls: "vault-hub-snippet-delete",
       });
-      deleteBtn.addEventListener("click", async () => {
-        if (confirm(`Delete snippet "${snippetId}"?`)) {
+      deleteBtn.addEventListener("click", () => {
+        void (async () => {
+          const ok = await confirmModal(this.app, `Delete snippet "${snippetId}"?`);
+          if (!ok) return;
           await this.app.vault.adapter.remove(`${snippetsDir}/${fileName}`);
           new Notice(`Deleted: ${snippetId}`);
           await this.renderSnippetManager();
-        }
+        })();
       });
     }
   }
@@ -664,7 +699,7 @@ export class BrowseView extends ItemView {
       const appearancePath = `${this.app.vault.configDir}/appearance.json`;
       let appearance: Record<string, unknown> = {};
       try {
-        appearance = JSON.parse(await this.app.vault.adapter.read(appearancePath));
+        appearance = JSON.parse(await this.app.vault.adapter.read(appearancePath)) as Record<string, unknown>;
       } catch { /* new file */ }
 
       const enabled: string[] = (appearance.enabledCssSnippets as string[]) || [];

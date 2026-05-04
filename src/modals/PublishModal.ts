@@ -6,6 +6,7 @@ import {
   TFile,
   TextAreaComponent,
   DropdownComponent,
+  Platform,
 } from "obsidian";
 import type VaultHubPlugin from "../main";
 import { DetectedPlugin, detectPlugins } from "../detection";
@@ -379,17 +380,19 @@ export class PublishModal extends Modal {
       draftBar.setText("Restored your saved publish draft.");
       const discardBtn = draftBar.createEl("button", { text: "Start over" });
       discardBtn.type = "button";
-      discardBtn.style.marginLeft = "8px";
-      discardBtn.addEventListener("click", async () => {
-        this.resetState();
-        await this.discardDraft();
-        this.renderStep();
+      discardBtn.addClass("vault-hub-discard-btn");
+      discardBtn.addEventListener("click", () => {
+        void (async () => {
+          this.resetState();
+          await this.discardDraft();
+          this.renderStep();
+        })();
       });
     }
 
     switch (this.step) {
-      case 1: this.renderStep1(); break;
-      case 2: this.renderStep2(); break;
+      case 1: void this.renderStep1(); break;
+      case 2: void this.renderStep2(); break;
       case 3: this.renderStep3(); break;
       case 4: this.renderStep4(); break;
       case 5: this.renderStep5(); break;
@@ -497,9 +500,8 @@ export class PublishModal extends Modal {
     const list = fileSection.createDiv("vault-hub-file-list");
     const emptyFileSearch = fileSection.createEl("p", {
       text: "No files match that search.",
-      cls: "vault-hub-hint",
+      cls: "vault-hub-hint vault-hub-hidden",
     });
-    emptyFileSearch.style.display = "none";
 
     const renderFileList = () => {
       const fileSearchNeedle = this.fileSearchQuery.trim().toLowerCase();
@@ -509,7 +511,7 @@ export class PublishModal extends Modal {
       const selectedPaths = new Set(this.selectedFiles.map((f) => f.path));
 
       list.empty();
-      emptyFileSearch.style.display = files.length > 0 && visibleFiles.length === 0 ? "" : "none";
+      emptyFileSearch.toggleClass("vault-hub-hidden", !(files.length > 0 && visibleFiles.length === 0));
       if (count) {
         count.setText(`${this.selectedFiles.length} / ${files.length} selected`);
       }
@@ -569,16 +571,15 @@ export class PublishModal extends Modal {
         const snippetList = snippetSection.createDiv("vault-hub-file-list");
         const emptySnippetSearch = snippetSection.createEl("p", {
           text: "No snippets match that search.",
-          cls: "vault-hub-hint",
+          cls: "vault-hub-hint vault-hub-hidden",
         });
-        emptySnippetSearch.style.display = "none";
 
         const renderSnippetList = () => {
           const visibleSnippets = filterSnippets();
           const selectedSnippetPaths = new Set(this.selectedAttachedSnippets.map((f) => f.path));
 
           snippetList.empty();
-          emptySnippetSearch.style.display = visibleSnippets.length === 0 ? "" : "none";
+          emptySnippetSearch.toggleClass("vault-hub-hidden", visibleSnippets.length !== 0);
 
           visibleSnippets.forEach((file) => {
             const row = snippetList.createDiv("vault-hub-file-row");
@@ -633,11 +634,11 @@ export class PublishModal extends Modal {
 
     const loading = c.createDiv({ text: "Scanning..." });
 
-    const fileType = this.resourceType === "snippet" ? "css" : "md";
+    const fileType: "css" | "md" = this.resourceType === "snippet" ? "css" : "md";
     const detectedById = new Map<string, DetectedPlugin>();
     for (const file of this.selectedFiles) {
       const content = await file.read();
-      const detected = await detectPlugins(content, fileType as "css" | "md", this.app.vault);
+      const detected = await detectPlugins(content, fileType, this.app.vault);
       detected.forEach((plugin) => detectedById.set(plugin.id, plugin));
     }
     this.allPlugins = [...detectedById.values()];
@@ -744,9 +745,8 @@ export class PublishModal extends Modal {
         const snippetList = snippetSection.createDiv("vault-hub-file-list");
         const emptySnippetSearch = snippetSection.createEl("p", {
           text: "No snippets match that search.",
-          cls: "vault-hub-hint",
+          cls: "vault-hub-hint vault-hub-hidden",
         });
-        emptySnippetSearch.style.display = "none";
 
         const renderBundleSnippetList = () => {
           const needle = this.attachedSnippetSearchQuery.trim().toLowerCase();
@@ -756,7 +756,7 @@ export class PublishModal extends Modal {
           const selectedSnippetPaths = new Set(this.selectedAttachedSnippets.map((file) => file.path));
 
           snippetList.empty();
-          emptySnippetSearch.style.display = visibleSnippets.length === 0 ? "" : "none";
+          emptySnippetSearch.toggleClass("vault-hub-hidden", visibleSnippets.length !== 0);
           count.setText(`${this.selectedAttachedSnippets.length} / ${availableSnippets.length} selected`);
 
           visibleSnippets.forEach((file) => {
@@ -814,20 +814,19 @@ export class PublishModal extends Modal {
     new Setting(c).setName("Name").addText((t) => {
       t.setPlaceholder("My resource").setValue(this.name);
       t.onChange((v: string) => (this.name = v));
-      t.inputEl.style.width = "100%";
+      t.inputEl.addClass("vault-hub-input-full");
     });
 
     new Setting(c).setName("Tagline").setDesc("One-line summary").addText((t) => {
       t.setPlaceholder("A brief description").setValue(this.tagline);
       t.onChange((v: string) => (this.tagline = v));
-      t.inputEl.style.width = "100%";
+      t.inputEl.addClass("vault-hub-input-full");
     });
 
     new Setting(c).setName("Description").addTextArea((t: TextAreaComponent) => {
       t.setPlaceholder("Detailed description...").setValue(this.description);
       t.onChange((v: string) => (this.description = v));
-      t.inputEl.style.width = "100%";
-      t.inputEl.style.minHeight = "80px";
+      t.inputEl.addClass("vault-hub-textarea-tall");
     });
 
     const cats = CATEGORIES[this.resourceType] || [];
@@ -870,26 +869,25 @@ export class PublishModal extends Modal {
     renderCategoryList();
 
     new Setting(c).setName("Tags").setDesc("Comma-separated").addText((t) => {
-      t.setPlaceholder("glass, blur, dark").setValue(this.tags);
+      t.setPlaceholder("Glass, blur, dark").setValue(this.tags);
       t.onChange((v: string) => (this.tags = v));
     });
 
     const screenshotSection = c.createDiv();
     screenshotSection.createEl("h4", { text: "Screenshots" });
     screenshotSection.createEl("p", {
-      text: "Optional. Use local image files, external image URLs, or both.",
+      text: "Optional. Use local image files, external image urls, or both.",
       cls: "vault-hub-hint",
     });
 
     new Setting(screenshotSection)
-      .setName("External screenshot URLs")
-      .setDesc("One per line. Direct image URLs work best.")
+      .setName("External screenshot urls")
+      .setDesc("One per line. Direct image urls work best.")
       .addTextArea((t: TextAreaComponent) => {
         t.setPlaceholder("https://example.com/screenshot.png")
           .setValue(this.externalScreenshotUrls);
         t.onChange((v: string) => (this.externalScreenshotUrls = v));
-        t.inputEl.style.width = "100%";
-        t.inputEl.style.minHeight = "72px";
+        t.inputEl.addClass("vault-hub-textarea-short");
       });
 
     const screenshotSearch = screenshotSection.createEl("input", {
@@ -902,9 +900,8 @@ export class PublishModal extends Modal {
     const screenshotList = screenshotSection.createDiv("vault-hub-file-list");
     const screenshotEmpty = screenshotSection.createEl("p", {
       text: "No screenshots match that search.",
-      cls: "vault-hub-hint",
+      cls: "vault-hub-hint vault-hub-hidden",
     });
-    screenshotEmpty.style.display = "none";
 
     const renderScreenshotList = async () => {
       const allImages = await listImageFiles(this.app);
@@ -919,7 +916,7 @@ export class PublishModal extends Modal {
       const selectedImagePaths = new Set(this.selectedScreenshots.map((file) => file.path));
 
       screenshotList.empty();
-      screenshotEmpty.style.display = allImages.length > 0 && visibleImages.length === 0 ? "" : "none";
+      screenshotEmpty.toggleClass("vault-hub-hidden", !(allImages.length > 0 && visibleImages.length === 0));
 
       if (allImages.length === 0) {
         screenshotList.createEl("p", {
@@ -950,9 +947,9 @@ export class PublishModal extends Modal {
     if (this.resourceType === "snippet") {
       new Setting(c).setName("Compatible themes").addDropdown((dd: DropdownComponent) => {
         dd.addOption("any", "Any theme");
-        ["minimal", "velocity", "obsidian-default", "catppuccin"].forEach((t) =>
-          dd.addOption(t, t)
-        );
+        ["minimal", "velocity", "obsidian-default", "catppuccin"].forEach((t) => {
+          dd.addOption(t, t);
+        });
         dd.setValue(this.compatibleThemes[0] || "any");
         dd.onChange((v: string) => (this.compatibleThemes = [v]));
       });
@@ -970,7 +967,7 @@ export class PublishModal extends Modal {
 
   private renderStep4() {
     const c = this.contentEl;
-    c.createEl("h4", { text: "Edit README" });
+    c.createEl("h4", { text: "Edit readme" });
     c.createEl("p", {
       text: "Auto-generated from your details. Edit freely.",
       cls: "vault-hub-hint",
@@ -1020,23 +1017,25 @@ export class PublishModal extends Modal {
     const btnContainer = c.createDiv("vault-hub-nav");
 
     const backBtn = btnContainer.createEl("button", { text: "Back" });
-    backBtn.addEventListener("click", async () => {
-      this.step--;
-      await this.saveDraft();
-      this.renderStep();
+    backBtn.addEventListener("click", () => {
+      void (async () => {
+        this.step--;
+        await this.saveDraft();
+        this.renderStep();
+      })();
     });
 
     const publishBtn = btnContainer.createEl("button", {
       text: "Publish",
       cls: "mod-cta",
     });
-    publishBtn.addEventListener("click", () => this.doPublish());
+    publishBtn.addEventListener("click", () => void this.doPublish());
   }
 
   private async doPublish() {
     const token = this.plugin.settings.githubToken;
     if (!token) {
-      new Notice("Set your GitHub token in Vault Hub settings first");
+      new Notice("Set your GitHub token in vault hub settings first");
       return;
     }
 
@@ -1134,7 +1133,7 @@ export class PublishModal extends Modal {
         })),
         obsidianVersion: obsVer,
         theme: themeName,
-        os: navigator.platform,
+        os: Platform.isMacOS ? "macOS" : Platform.isWin ? "Windows" : Platform.isLinux ? "Linux" : "unknown",
         files: resourceFiles.map((f) => ({
           path: f.path,
           type: f.extension,
@@ -1147,7 +1146,7 @@ export class PublishModal extends Modal {
       await gh.upsertFile(owner, rName, "hub.md", hubMd, "Sync hub.md");
 
       // Upload README
-      status.setText("Uploading README...");
+      status.setText("Uploading readme...");
       await gh.upsertFile(owner, rName, "README.md", readmeContent, "Sync README.md");
 
       let refreshRequested = false;
@@ -1199,7 +1198,7 @@ export class PublishModal extends Modal {
       const vaultHubUrl = `https://obsidianvaulthub.com/r/${owner}/${rName}`;
       const actions = c.createDiv("vault-hub-success-actions");
       const link = actions.createEl("a", {
-        text: "Open pending page on Vault Hub",
+        text: "Open pending page on vault hub",
         href: vaultHubUrl,
         cls: "mod-cta vault-hub-success-link",
       });
@@ -1244,21 +1243,25 @@ export class PublishModal extends Modal {
 
     if (this.step > 1) {
       const back = nav.createEl("button", { text: "Back" });
-      back.addEventListener("click", async () => {
+      back.addEventListener("click", () => {
         if (backCheck && !backCheck()) return;
-        this.step--;
-        await this.saveDraft();
-        this.renderStep();
+        void (async () => {
+          this.step--;
+          await this.saveDraft();
+          this.renderStep();
+        })();
       });
     }
 
     if (this.step < 5) {
       const next = nav.createEl("button", { text: "Next", cls: "mod-cta" });
-      next.addEventListener("click", async () => {
+      next.addEventListener("click", () => {
         if (nextCheck && !nextCheck()) return;
-        this.step++;
-        await this.saveDraft();
-        this.renderStep();
+        void (async () => {
+          this.step++;
+          await this.saveDraft();
+          this.renderStep();
+        })();
       });
     }
   }

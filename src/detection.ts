@@ -54,7 +54,7 @@ export async function getInstalledPlugins(
     const manifestPath = `${folder}/manifest.json`;
     try {
       const raw = await vault.adapter.read(manifestPath);
-      const manifest: PluginManifest = JSON.parse(raw);
+      const manifest = JSON.parse(raw) as PluginManifest;
       plugins.push({
         id: manifest.id,
         name: manifest.name,
