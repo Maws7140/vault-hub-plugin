@@ -187,6 +187,7 @@ export class BrowseView extends ItemView {
   }
 
   async onClose() {
+    await Promise.resolve();
     this.contentEl.empty();
   }
 
@@ -460,6 +461,7 @@ export class BrowseView extends ItemView {
   }
 
   private async notifyRequiredPluginsFromContent(hubMd: string, title: string) {
+    await Promise.resolve();
     try {
       const frontmatter = extractFrontmatter(hubMd);
       if (!frontmatter) return;

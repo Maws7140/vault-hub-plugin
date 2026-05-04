@@ -110,6 +110,7 @@ function snippetIdFromFile(file: Pick<PublishFile, "name">): string {
 }
 
 async function listImageFiles(app: App): Promise<PublishFile[]> {
+  await Promise.resolve();
   const imageExts = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
   return app.vault
     .getFiles()
@@ -464,7 +465,7 @@ export class PublishModal extends Modal {
       });
     } else {
       fileSection.createEl("p", {
-        text: "Root README.md and hub.md are managed by Vault Hub and are excluded from resource files.",
+        text: "Root README.md and hub.md are managed by Vault hub and are excluded from resource files.",
         cls: "vault-hub-hint",
       });
     }
@@ -1340,7 +1341,7 @@ export class PublishModal extends Modal {
         localPath: file.path,
         repoPath: `screenshots/${candidate}`,
         name: stem,
-        readBinary: file.readBinary || (async () => new ArrayBuffer(0)),
+        readBinary: file.readBinary || (async () => { await Promise.resolve(); return new ArrayBuffer(0); }),
       };
     });
   }
