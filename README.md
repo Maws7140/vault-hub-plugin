@@ -1,5 +1,5 @@
 # Vault Hub
-
+![Screenshot](https://i.ibb.co/vSgvxcH/f7641636811c.png)
 Vault Hub is an Obsidian plugin for publishing and installing Vault Hub resources.
 
 It covers three workflows:
