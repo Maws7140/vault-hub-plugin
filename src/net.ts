@@ -1,3 +1,4 @@
+//wrappers around obsidian's requestUrl 
 import { requestUrl } from "obsidian";
 
 interface RequestOptions {

@@ -1,3 +1,5 @@
+// plugin settings and default values
+
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type VaultHubPlugin from "./main";
 

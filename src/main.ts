@@ -1,3 +1,4 @@
+
 import { Plugin } from "obsidian";
 import {
   VaultHubSettings,
@@ -41,7 +42,7 @@ export default class VaultHubPlugin extends Plugin {
     });
   }
 
-  onunload() {}
+  onunload() { }
 
   async loadSettings() {
     const data = (await this.loadData()) as Partial<VaultHubSettings> | null;

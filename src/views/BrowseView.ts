@@ -1,3 +1,5 @@
+// the main ui where people can search and download stuff
+
 import { ItemView, WorkspaceLeaf, Notice, Modal, App } from "obsidian";
 import type VaultHubPlugin from "../main";
 import { requestJson, requestText } from "../net";

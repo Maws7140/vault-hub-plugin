@@ -1,5 +1,10 @@
+// builds hub.md
+// it's what gets committed so the registry can read it
+
 import { DetectedPlugin } from "./detection";
 
+// everything needed to make a hub.md file
+// the publish modal grabs all this stuff
 export interface HubMdData {
   type: "snippet" | "note" | "vault";
   name: string;
@@ -11,25 +16,32 @@ export interface HubMdData {
   compatibleThemes: string[];
   screenshots: string[];
   plugins: DetectedPlugin[];
+  // css files bundled with it so styling doesnt break
   attachedSnippets: { path: string; name?: string; optional?: boolean }[];
   obsidianVersion: string;
   theme: string;
   os: string;
+  // full file list so the api doesnt have to clone the repo
   files: { path: string; type: string; size: number }[];
   body: string;
 }
 
+// turns the data into a string
 export function generateHubMd(data: HubMdData): string {
   const lines: string[] = [];
+
   lines.push("---");
   lines.push("schema: 1");
+
   lines.push(`type: ${data.type}`);
   lines.push(`name: "${esc(data.name)}"`);
   lines.push(`tagline: "${esc(data.tagline)}"`);
+
   lines.push("description: |");
   data.description.split("\n").forEach((line) => lines.push(`  ${line}`));
   lines.push(`author: ${data.author}`);
 
+  // registry needs these to filter stuff
   lines.push("categories:");
   data.categories.forEach((category) => lines.push(`  - ${category}`));
 
@@ -48,6 +60,7 @@ export function generateHubMd(data: HubMdData): string {
     data.screenshots.forEach((screenshot) => lines.push(`  - ${screenshot}`));
   }
 
+  // only list the auto detected ones so people dont guess wrong ids
   const selected = data.plugins.filter((plugin) => plugin.autoDetected);
   if (selected.length > 0) {
     lines.push("plugins:");
@@ -67,6 +80,7 @@ export function generateHubMd(data: HubMdData): string {
     });
   }
 
+  // env info just in case
   lines.push("environment:");
   lines.push(`  obsidian_version: "${esc(data.obsidianVersion)}"`);
   lines.push(`  theme: "${esc(data.theme)}"`);
@@ -80,6 +94,7 @@ export function generateHubMd(data: HubMdData): string {
   });
 
   lines.push("---");
+
   lines.push("");
   lines.push(data.body.trim());
   lines.push("");
@@ -87,6 +102,7 @@ export function generateHubMd(data: HubMdData): string {
   return lines.join("\n");
 }
 
+// fix quotes and backslashes for yaml
 function esc(value: string | undefined): string {
   return String(value || "").replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }

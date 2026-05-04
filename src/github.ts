@@ -1,3 +1,5 @@
+// handles all the github api stuff so we can push vaults and snippets
+
 import { requestJson } from "./net";
 
 function encodeUtf8ToBase64(input: string): string {

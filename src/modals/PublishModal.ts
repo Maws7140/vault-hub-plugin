@@ -1,3 +1,5 @@
+// huge modal that walks you through picking what to publish and throws it on github
+
 import {
   App,
   Modal,

@@ -1,3 +1,5 @@
+// builds the default readme for the github repo
+
 import { DetectedPlugin } from "./detection";
 
 export interface ReadmeData {

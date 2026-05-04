@@ -1,3 +1,5 @@
+// checks if local files are out of sync with github and pushes the diff
+
 import { App, Modal, Setting, Notice, TFile } from "obsidian";
 import type VaultHubPlugin from "../main";
 import { PublishedFileMapping, PublishedResource } from "../settings";

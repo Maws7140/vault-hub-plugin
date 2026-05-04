@@ -1,3 +1,5 @@
+// figures out what plugins are installed so we can list dependencies
+
 import { Vault } from "obsidian";
 
 export interface DetectedPlugin {
