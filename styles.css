@@ -64,6 +64,23 @@
   font-weight: 600;
   color: #fff;
   text-transform: capitalize;
+  background: var(--vault-hub-badge-color, #666);
+}
+
+.vault-hub-type-badge[data-kind="vault"] {
+  --vault-hub-badge-color: #7f6df2;
+}
+
+.vault-hub-type-badge[data-kind="snippet"] {
+  --vault-hub-badge-color: #0e9aab;
+}
+
+.vault-hub-type-badge[data-kind="note"] {
+  --vault-hub-badge-color: #fb923c;
+}
+
+.vault-hub-type-badge[data-kind="dashboard"] {
+  --vault-hub-badge-color: #16a34a;
 }
 
 .vault-hub-result-meta {

@@ -45,6 +45,18 @@ interface ScreenshotFile {
   readBinary: () => Promise<ArrayBuffer>;
 }
 
+interface AppearanceConfig {
+  enabledCssSnippets?: string[];
+}
+
+interface VaultConfigLike {
+  cssTheme?: string;
+}
+
+interface AppVersionLike {
+  appVersion?: string;
+}
+
 const RESERVED_ROOT_PATHS = new Set(["readme.md", "hub.md"]);
 
 function isReservedRootPath(path: string): boolean {
@@ -98,8 +110,8 @@ async function listSnippetFiles(app: App): Promise<PublishFile[]> {
 async function getEnabledSnippetIds(app: App): Promise<Set<string>> {
   try {
     const raw = await app.vault.adapter.read(`${app.vault.configDir}/appearance.json`);
-    const parsed = JSON.parse(raw) as { enabledCssSnippets?: string[] };
-    return new Set((parsed.enabledCssSnippets || []).map((value) => String(value || "").toLowerCase()));
+    const parsed = parseAppearanceConfig(raw);
+    return new Set(parsed.enabledCssSnippets.map((value) => value.toLowerCase()));
   } catch {
     return new Set();
   }
@@ -384,13 +396,7 @@ export class PublishModal extends Modal {
       const discardBtn = draftBar.createEl("button", { text: "Start over" });
       discardBtn.type = "button";
       discardBtn.addClass("vault-hub-discard-btn");
-      discardBtn.addEventListener("click", () => {
-        void (async () => {
-          this.resetState();
-          await this.discardDraft();
-          this.renderStep();
-        })();
-      });
+      discardBtn.addEventListener("click", () => void this.resetDraftAndRender());
     }
 
     switch (this.step) {
@@ -596,10 +602,10 @@ export class PublishModal extends Modal {
           });
         };
 
-      attachedSnippetSearch.addEventListener("input", () => {
-        this.attachedSnippetSearchQuery = attachedSnippetSearch.value;
-        renderSnippetList();
-      });
+        attachedSnippetSearch.addEventListener("input", () => {
+          this.attachedSnippetSearchQuery = attachedSnippetSearch.value;
+          renderSnippetList();
+        });
 
         renderSnippetList();
       }
@@ -941,16 +947,13 @@ export class PublishModal extends Modal {
       });
     };
 
-    screenshotSearch.addEventListener("input", () => {
-      this.screenshotSearchQuery = screenshotSearch.value;
-      void renderScreenshotList();
-    });
+    screenshotSearch.addEventListener("input", () => void this.updateScreenshotSearch(screenshotSearch, renderScreenshotList));
     void renderScreenshotList();
 
     if (this.resourceType === "snippet") {
       new Setting(c).setName("Compatible themes").addDropdown((dd: DropdownComponent) => {
         dd.addOption("any", "Any theme");
-        ["minimal", "velocity", "obsidian-default", "catppuccin"].forEach((t) => {
+        ["minimal", "velocity", "obsidian-default", "catppuccin"].forEach((t: string) => {
           dd.addOption(t, t);
         });
         dd.setValue(this.compatibleThemes[0] || "any");
@@ -1020,13 +1023,7 @@ export class PublishModal extends Modal {
     const btnContainer = c.createDiv("vault-hub-nav");
 
     const backBtn = btnContainer.createEl("button", { text: "Back" });
-    backBtn.addEventListener("click", () => {
-      void (async () => {
-        this.step--;
-        await this.saveDraft();
-        this.renderStep();
-      })();
-    });
+    backBtn.addEventListener("click", () => void this.navigateStep(-1));
 
     const publishBtn = btnContainer.createEl("button", {
       text: "Publish",
@@ -1115,8 +1112,8 @@ export class PublishModal extends Modal {
         .filter((p) => this.checkedPlugins.has(p.id))
         .map((p) => ({ ...p, autoDetected: true }));
 
-      const obsVer = (this.app as unknown as { appVersion?: string }).appVersion || "unknown";
-      const themeName = ((this.app.vault as unknown as { config?: { cssTheme?: string } }).config?.cssTheme) || "default";
+      const obsVer = getAppVersion(this.app);
+      const themeName = getVaultThemeName(this.app.vault);
 
       const hubData: HubMdData = {
         type: publishedType,
@@ -1248,11 +1245,7 @@ export class PublishModal extends Modal {
       const back = nav.createEl("button", { text: "Back" });
       back.addEventListener("click", () => {
         if (backCheck && !backCheck()) return;
-        void (async () => {
-          this.step--;
-          await this.saveDraft();
-          this.renderStep();
-        })();
+        void this.navigateStep(-1);
       });
     }
 
@@ -1260,13 +1253,29 @@ export class PublishModal extends Modal {
       const next = nav.createEl("button", { text: "Next", cls: "mod-cta" });
       next.addEventListener("click", () => {
         if (nextCheck && !nextCheck()) return;
-        void (async () => {
-          this.step++;
-          await this.saveDraft();
-          this.renderStep();
-        })();
+        void this.navigateStep(1);
       });
     }
+  }
+
+  private async resetDraftAndRender() {
+    this.resetState();
+    await this.discardDraft();
+    this.renderStep();
+  }
+
+  private async navigateStep(delta: -1 | 1) {
+    this.step += delta;
+    await this.saveDraft();
+    this.renderStep();
+  }
+
+  private async updateScreenshotSearch(
+    input: HTMLInputElement,
+    renderScreenshotList: () => Promise<void>
+  ) {
+    this.screenshotSearchQuery = input.value;
+    await renderScreenshotList();
   }
 
   private buildReadmeData(): ReadmeData {
@@ -1384,4 +1393,32 @@ export class PublishModal extends Modal {
   private uniqueStrings(values: string[]): string[] {
     return values.filter((value, index, all) => value && all.indexOf(value) === index);
   }
+}
+
+function parseAppearanceConfig(raw: string): Required<AppearanceConfig> {
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null) {
+    return { enabledCssSnippets: [] };
+  }
+
+  const config = parsed as AppearanceConfig;
+  const enabledCssSnippets = Array.isArray(config.enabledCssSnippets)
+    ? config.enabledCssSnippets.filter(
+        (value): value is string => typeof value === "string"
+      )
+    : [];
+
+  return { enabledCssSnippets };
+}
+
+function getAppVersion(app: App): string {
+  const maybeVersion = (app as App & AppVersionLike).appVersion;
+  return typeof maybeVersion === "string" ? maybeVersion : "unknown";
+}
+
+function getVaultThemeName(vault: App["vault"]): string {
+  const maybeConfig = (vault as typeof vault & { config?: VaultConfigLike }).config;
+  return typeof maybeConfig?.cssTheme === "string" && maybeConfig.cssTheme.length > 0
+    ? maybeConfig.cssTheme
+    : "default";
 }

@@ -1,5 +1,5 @@
 
-import { Plugin } from "obsidian";
+import { Plugin, requireApiVersion } from "obsidian";
 import {
   VaultHubSettings,
   DEFAULT_SETTINGS,
@@ -32,7 +32,9 @@ export default class VaultHubPlugin extends Plugin {
     this.addCommand({
       id: "browse-resources",
       name: "Browse resources",
-      callback: () => this.activateBrowseView(),
+      callback: () => {
+        void this.activateBrowseView();
+      },
     });
 
     this.addSettingTab(new VaultHubSettingTab(this.app, this));
@@ -45,8 +47,11 @@ export default class VaultHubPlugin extends Plugin {
   onunload() { }
 
   async loadSettings() {
-    const data = (await this.loadData()) as Partial<VaultHubSettings> | null;
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, data ?? {});
+    const data = await this.loadData();
+    this.settings = {
+      ...DEFAULT_SETTINGS,
+      ...(isVaultHubSettingsData(data) ? data : {}),
+    };
   }
 
   async saveSettings() {
@@ -64,7 +69,15 @@ export default class VaultHubPlugin extends Plugin {
       }
     }
     if (leaf) {
-      void workspace.revealLeaf(leaf);
+      if (requireApiVersion("1.7.2")) {
+        await workspace.revealLeaf(leaf);
+      } else {
+        workspace.setActiveLeaf(leaf, { focus: true });
+      }
     }
   }
+}
+
+function isVaultHubSettingsData(value: unknown): value is Partial<VaultHubSettings> {
+  return typeof value === "object" && value !== null;
 }

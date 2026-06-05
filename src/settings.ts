@@ -71,31 +71,27 @@ export class VaultHubSettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("GitHub personal access token")
       .setDesc("Token used to create repos and push files. Requires the repo scope.")
-      .addText((text) =>
-        text
-          // eslint-disable-next-line obsidianmd/ui/sentence-case
-          .setPlaceholder("ghp_xxxxxxxxxxxx")
-          .setValue(this.plugin.settings.githubToken)
-          .then((t) => {
-            t.inputEl.type = "password";
-            t.inputEl.addClass("vault-hub-text-input-wide");
-          })
-          .onChange(async (value) => {
-            this.plugin.settings.githubToken = value;
-            await this.plugin.saveSettings();
-          })
-      );
+      .addText((text) => {
+        // eslint-disable-next-line obsidianmd/ui/sentence-case
+        text.setPlaceholder("ghp_xxxxxxxxxxxx").setValue(this.plugin.settings.githubToken);
+        text.inputEl.type = "password";
+        text.inputEl.addClass("vault-hub-text-input-wide");
+        text.onChange((value) => {
+          this.plugin.settings.githubToken = value;
+          void this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl)
-      .setName("Vault hub URL")
+      .setName("Hub URL")
       .setDesc("URL of the vault hub website.")
       .addText((text) =>
         text
           .setPlaceholder("https://obsidianvaulthub.com")
           .setValue(this.plugin.settings.vaultHubUrl)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.vaultHubUrl = value;
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
@@ -106,9 +102,9 @@ export class VaultHubSettingTab extends PluginSettingTab {
         text
           .setPlaceholder("Maws7140/vault-hub")
           .setValue(this.plugin.settings.catalogRepoFullName)
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.catalogRepoFullName = value.trim();
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
 
@@ -119,12 +115,12 @@ export class VaultHubSettingTab extends PluginSettingTab {
         text
           .setPlaceholder("Appearance, workflow")
           .setValue(this.plugin.settings.defaultCategories.join(", "))
-          .onChange(async (value) => {
+          .onChange((value) => {
             this.plugin.settings.defaultCategories = value
               .split(",")
               .map((s) => s.trim())
               .filter((s) => s.length > 0);
-            await this.plugin.saveSettings();
+            void this.plugin.saveSettings();
           })
       );
   }

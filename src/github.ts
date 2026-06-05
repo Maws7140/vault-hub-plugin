@@ -194,9 +194,12 @@ export class GitHubAPI {
     path: string
   ): Promise<{ sha: string; content: string } | null> {
     try {
-      const data = await this.request<{ sha: string; content: string }>(
+      const data = await this.request<{ sha?: unknown; content?: unknown }>(
         `/repos/${owner}/${repo}/contents/${this.encodePath(path)}`
       );
+      if (typeof data.sha !== "string" || typeof data.content !== "string") {
+        throw new Error(`Unexpected GitHub contents response for ${owner}/${repo}/${path}`);
+      }
       return { sha: data.sha, content: decodeBase64ToUtf8(data.content.replace(/\s/g, "")) };
     } catch (error) {
       if (String(error).includes("GitHub API 404")) return null;
@@ -208,14 +211,15 @@ export class GitHubAPI {
     owner: string,
     repo: string
   ): Promise<{ path: string; sha: string; download_url: string; type: string }[]> {
-    const data = await this.request<{
-      tree?: { path: string; sha: string; type: string }[];
-    }>(`/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`);
-    if (!Array.isArray(data.tree)) return [];
+    const data = await this.request<{ tree?: unknown }>(
+      `/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`
+    );
+    const tree = Array.isArray(data.tree) ? data.tree.filter(isGitHubTreeItem) : [];
+    if (tree.length === 0) return [];
 
-    return data.tree
-      .filter((item: { path: string; type: string }) => item.type === "blob")
-      .map((item: { path: string; sha: string }) => ({
+    return tree
+      .filter((item) => item.type === "blob")
+      .map((item) => ({
         path: item.path,
         sha: item.sha,
         download_url: `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${this.encodePath(item.path)}`,
@@ -256,4 +260,14 @@ export class GitHubAPI {
       }),
     });
   }
+}
+
+function isGitHubTreeItem(value: unknown): value is { path: string; sha: string; type: string } {
+  if (typeof value !== "object" || value === null) return false;
+  const item = value as Record<string, unknown>;
+  return (
+    typeof item.path === "string" &&
+    typeof item.sha === "string" &&
+    typeof item.type === "string"
+  );
 }

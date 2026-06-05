@@ -157,7 +157,9 @@ export class UpdateModal extends Modal {
 
     const nav = c.createDiv("vault-hub-nav");
     const backBtn = nav.createEl("button", { text: "Back" });
-    backBtn.addEventListener("click", () => void this.renderSelect());
+    backBtn.addEventListener("click", () => {
+      void this.renderSelect();
+    });
 
     if (!this.selectedHasLocalMappings) {
       c.createEl("p", {
@@ -171,7 +173,9 @@ export class UpdateModal extends Modal {
         text: `Push ${changed.length} Change${changed.length !== 1 ? "s" : ""}`,
         cls: "mod-cta",
       });
-      pushBtn.addEventListener("click", () => void this.doPush(changed));
+      pushBtn.addEventListener("click", () => {
+        void this.doPush(changed);
+      });
     }
   }
 

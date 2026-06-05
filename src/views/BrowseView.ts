@@ -22,14 +22,45 @@ interface ResourceSummary {
   tags?: string[];
 }
 
+interface CatalogResourcePayload extends Omit<ResourceSummary, "type" | "rawType" | "subtype"> {
+  type: string;
+  rawType?: string;
+}
+
 interface HubMdAttachedSnippet {
   path: string;
   name?: string;
   optional?: boolean;
 }
 
+interface AppearanceConfig {
+  enabledCssSnippets?: string[];
+  [key: string]: unknown;
+}
+
+interface InternalPluginManager {
+  plugins?: Record<string, unknown>;
+}
+
+interface InternalCustomCss {
+  enabledSnippets?: Set<string>;
+  requestLoadSnippets?: () => void;
+  setCssEnabledStatus?: (id: string, enabled: boolean) => void;
+}
+
+interface AppInternals {
+  plugins?: InternalPluginManager;
+  customCss?: InternalCustomCss;
+}
+
 const TYPE_FILTERS = ["all", "vault", "snippet", "note", "dashboard"] as const;
 type TypeFilter = typeof TYPE_FILTERS[number];
+type CatalogType = ResourceSummary["type"] | "dashboard";
+
+interface GitHubTreeItem {
+  path: string;
+  type: string;
+}
 
 function normalizeToken(value: string): string {
   return value.trim().toLowerCase().replace(/[\s_]+/g, "-");
@@ -69,19 +100,54 @@ function hasDashboardMarker(values?: string[] | null): boolean {
   return (values || []).some((value) => normalizeToken(value) === "dashboard");
 }
 
-function normalizeResource(resource: Omit<ResourceSummary, "type"> & { type: string }): ResourceSummary {
-  const rawType = resource.rawType || resource.type;
+function isCatalogType(value: unknown): value is CatalogType {
+  return value === "vault" || value === "snippet" || value === "note" || value === "dashboard";
+}
+
+function isCatalogResourcePayload(value: unknown): value is CatalogResourcePayload {
+  if (typeof value !== "object" || value === null) return false;
+  const resource = value as Record<string, unknown>;
+  return (
+    typeof resource.id === "string" &&
+    typeof resource.type === "string" &&
+    typeof resource.title === "string" &&
+    typeof resource.owner === "string" &&
+    typeof resource.repo_name === "string" &&
+    typeof resource.full_name === "string" &&
+    typeof resource.stars === "number"
+  );
+}
+
+function normalizeResource(resource: CatalogResourcePayload): ResourceSummary {
+  const rawType = isCatalogType(resource.rawType) ? resource.rawType : resource.type;
   const subtype =
     rawType === "dashboard" || hasDashboardMarker(resource.categories) || hasDashboardMarker(resource.tags)
       ? "dashboard"
       : null;
+  const type = isCatalogType(rawType) && rawType !== "dashboard" ? rawType : "note";
 
   return {
     ...resource,
-    rawType: rawType as ResourceSummary["rawType"],
-    type: rawType === "dashboard" ? "note" : (rawType as ResourceSummary["type"]),
+    rawType: isCatalogType(rawType) ? rawType : undefined,
+    type,
     subtype,
   };
+}
+
+function getErrorMessage(value: unknown): string | null {
+  if (typeof value !== "object" || value === null) return null;
+  const payload = value as Record<string, unknown>;
+  for (const key of ["error", "message", "hint"]) {
+    const message = payload[key];
+    if (typeof message === "string" && message.length > 0) return message;
+  }
+  return null;
+}
+
+function isGitHubTreeItem(value: unknown): value is GitHubTreeItem {
+  if (typeof value !== "object" || value === null) return false;
+  const item = value as Record<string, unknown>;
+  return typeof item.path === "string" && typeof item.type === "string";
 }
 
 function getDisplayKind(resource: ResourceSummary): "vault" | "snippet" | "note" | "dashboard" {
@@ -280,12 +346,9 @@ export class BrowseView extends ItemView {
 
       const data = await requestJson<unknown>(`${baseUrl}/api/search?${params.toString()}`);
       if (!Array.isArray(data)) {
-        const errorPayload = data as { error?: string; message?: string; hint?: string } | null;
-        throw new Error(errorPayload?.error || errorPayload?.message || errorPayload?.hint || "Unexpected response from API");
+        throw new Error(getErrorMessage(data) || "Unexpected response from API");
       }
-      let resources = (data as Array<Omit<ResourceSummary, "type"> & { type: string }>).map((resource) =>
-        normalizeResource(resource)
-      );
+      let resources = data.filter(isCatalogResourcePayload).map((resource) => normalizeResource(resource));
       if (this.filterType === "dashboard") {
         resources = resources.filter((resource) => isDashboardResource(resource));
       }
@@ -304,20 +367,13 @@ export class BrowseView extends ItemView {
       return;
     }
 
-    const typeColors: Record<string, string> = {
-      vault: "#7f6df2",
-      snippet: "#0e9aab",
-      note: "#fb923c",
-      dashboard: "#16a34a",
-    };
-
     this.resources.forEach((r) => {
       const displayKind = getDisplayKind(r);
       const card = container.createDiv("vault-hub-result-card");
 
       const badge = card.createSpan("vault-hub-type-badge");
       badge.setText(displayKind === "dashboard" ? "dashboard note" : r.type);
-      badge.style.backgroundColor = typeColors[displayKind] || "#666";
+      badge.dataset.kind = displayKind;
 
       card.createEl("h4", { text: r.title });
 
@@ -365,17 +421,18 @@ export class BrowseView extends ItemView {
 
   /** Download full vault tree into a named subfolder */
   private async installVault(r: ResourceSummary) {
-    const treeData = await requestJson<{ tree?: { path: string; type: string }[]; message?: string }>(
+    const treeData = await requestJson<{ tree?: unknown; message?: string }>(
       `https://api.github.com/repos/${r.full_name}/git/trees/HEAD?recursive=1`,
       { headers: { Accept: "application/vnd.github.v3+json" } }
     );
 
-    if (!Array.isArray(treeData.tree)) {
+    const tree = Array.isArray(treeData.tree) ? treeData.tree.filter(isGitHubTreeItem) : [];
+    if (tree.length === 0) {
       throw new Error(treeData.message || "Failed to fetch repository tree");
     }
 
     const textExts = /\.(md|canvas|txt|css|js|ts|json|yaml|yml|html|xml|svg|toml|ini|cfg)$/i;
-    const blobs = (treeData.tree as { path: string; type: string }[]).filter(
+    const blobs = tree.filter(
       (item) =>
         item.type === "blob" &&
         !item.path.startsWith(".github/") &&
@@ -468,10 +525,7 @@ export class BrowseView extends ItemView {
       const ids = parseRequiredPluginIds(frontmatter);
       if (ids.length === 0) return;
 
-      const installedPlugins = Object.keys(
-        (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } })
-          .plugins?.plugins || {}
-      );
+      const installedPlugins = Object.keys(getAppInternals(this.app).plugins?.plugins ?? {});
       const missing = ids.filter((id) => !installedPlugins.includes(id));
 
       if (missing.length === 0) {
@@ -489,16 +543,17 @@ export class BrowseView extends ItemView {
 
   /** Download CSS files to .obsidian/snippets/ */
   private async installSnippet(r: ResourceSummary) {
-    const treeData = await requestJson<{ tree?: { path: string; type: string }[]; message?: string }>(
+    const treeData = await requestJson<{ tree?: unknown; message?: string }>(
       `https://api.github.com/repos/${r.full_name}/git/trees/HEAD?recursive=1`,
       { headers: { Accept: "application/vnd.github.v3+json" } }
     );
 
-    if (!Array.isArray(treeData.tree)) {
+    const tree = Array.isArray(treeData.tree) ? treeData.tree.filter(isGitHubTreeItem) : [];
+    if (tree.length === 0) {
       throw new Error(treeData.message || "Failed to fetch repository tree");
     }
 
-    const cssFiles = (treeData.tree as { path: string; type: string }[]).filter(
+    const cssFiles = tree.filter(
       (f) => f.type === "blob" && f.path.endsWith(".css")
     );
     if (cssFiles.length === 0) {
@@ -524,16 +579,17 @@ export class BrowseView extends ItemView {
   /** Download .md files into a named folder */
   private async installNotes(r: ResourceSummary) {
     const hubMd = await this.fetchHubMd(r);
-    const treeData = await requestJson<{ tree?: { path: string; type: string }[]; message?: string }>(
+    const treeData = await requestJson<{ tree?: unknown; message?: string }>(
       `https://api.github.com/repos/${r.full_name}/git/trees/HEAD?recursive=1`,
       { headers: { Accept: "application/vnd.github.v3+json" } }
     );
 
-    if (!Array.isArray(treeData.tree)) {
+    const tree = Array.isArray(treeData.tree) ? treeData.tree.filter(isGitHubTreeItem) : [];
+    if (tree.length === 0) {
       throw new Error(treeData.message || "Failed to fetch repository tree");
     }
 
-    const mdFiles = (treeData.tree as { path: string; type: string }[]).filter(
+    const mdFiles = tree.filter(
       (f) =>
         f.type === "blob" &&
         f.path.endsWith(".md") &&
@@ -628,8 +684,7 @@ export class BrowseView extends ItemView {
       const raw = await this.app.vault.adapter.read(
         `${this.app.vault.configDir}/appearance.json`
       );
-      const parsed = JSON.parse(raw) as { enabledCssSnippets?: string[] } | null;
-      enabledSnippets = parsed?.enabledCssSnippets ?? [];
+      enabledSnippets = parseAppearanceConfig(raw).enabledCssSnippets ?? [];
     } catch {
       // appearance.json may not exist
     }
@@ -649,38 +704,19 @@ export class BrowseView extends ItemView {
         text: isEnabled ? "Enabled" : "Disabled",
         cls: `vault-hub-snippet-toggle${isEnabled ? " on" : ""}`,
       });
-      toggleBtn.addEventListener("click", () => {
-        void (async () => {
-          await this.setSnippetEnabled(snippetId, !isEnabled);
-          await this.renderSnippetManager();
-        })();
-      });
+      toggleBtn.addEventListener("click", () => void this.toggleSnippet(snippetId, !isEnabled));
 
       const deleteBtn = actions.createEl("button", {
         text: "Delete",
         cls: "vault-hub-snippet-delete",
       });
-      deleteBtn.addEventListener("click", () => {
-        void (async () => {
-          const ok = await confirmModal(this.app, `Delete snippet "${snippetId}"?`);
-          if (!ok) return;
-          await this.app.vault.adapter.remove(`${snippetsDir}/${fileName}`);
-          new Notice(`Deleted: ${snippetId}`);
-          await this.renderSnippetManager();
-        })();
-      });
+      deleteBtn.addEventListener("click", () => void this.deleteSnippet(snippetsDir, fileName, snippetId));
     }
   }
 
   private async setSnippetEnabled(snippetId: string, enable: boolean) {
     // Try Obsidian's internal API first - applies instantly without restart
-    const css = (this.app as unknown as {
-      customCss?: {
-        enabledSnippets?: Set<string>;
-        requestLoadSnippets?: () => void;
-        setCssEnabledStatus?: (id: string, enabled: boolean) => void;
-      };
-    }).customCss;
+    const css = getAppInternals(this.app).customCss;
 
     if (css) {
       if (css.setCssEnabledStatus) {
@@ -701,12 +737,12 @@ export class BrowseView extends ItemView {
     // Fallback: edit appearance.json directly
     try {
       const appearancePath = `${this.app.vault.configDir}/appearance.json`;
-      let appearance: Record<string, unknown> = {};
+      let appearance: AppearanceConfig = {};
       try {
-        appearance = JSON.parse(await this.app.vault.adapter.read(appearancePath)) as Record<string, unknown>;
+        appearance = parseAppearanceConfig(await this.app.vault.adapter.read(appearancePath));
       } catch { /* new file */ }
 
-      const enabled: string[] = (appearance.enabledCssSnippets as string[]) || [];
+      const enabled = appearance.enabledCssSnippets ?? [];
       if (enable && !enabled.includes(snippetId)) {
         enabled.push(snippetId);
       } else if (!enable) {
@@ -720,4 +756,36 @@ export class BrowseView extends ItemView {
       new Notice(`Failed to toggle snippet: ${e}`);
     }
   }
+
+  private async toggleSnippet(snippetId: string, enable: boolean) {
+    await this.setSnippetEnabled(snippetId, enable);
+    await this.renderSnippetManager();
+  }
+
+  private async deleteSnippet(snippetsDir: string, fileName: string, snippetId: string) {
+    const ok = await confirmModal(this.app, `Delete snippet "${snippetId}"?`);
+    if (!ok) return;
+    await this.app.vault.adapter.remove(`${snippetsDir}/${fileName}`);
+    new Notice(`Deleted: ${snippetId}`);
+    await this.renderSnippetManager();
+  }
+}
+
+function getAppInternals(app: App): App & AppInternals {
+  return app as App & AppInternals;
+}
+
+function parseAppearanceConfig(raw: string): AppearanceConfig {
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null) {
+    return { enabledCssSnippets: [] };
+  }
+
+  const config = parsed as AppearanceConfig;
+  return {
+    ...config,
+    enabledCssSnippets: Array.isArray(config.enabledCssSnippets)
+      ? config.enabledCssSnippets.filter((value): value is string => typeof value === "string")
+      : [],
+  };
 }

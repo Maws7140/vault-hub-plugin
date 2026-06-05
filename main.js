@@ -47,31 +47,31 @@ var VaultHubSettingTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    new import_obsidian.Setting(containerEl).setName("GitHub personal access token").setDesc("Token used to create repos and push files. Requires the repo scope.").addText(
-      (text) => text.setPlaceholder("ghp_xxxxxxxxxxxx").setValue(this.plugin.settings.githubToken).then((t) => {
-        t.inputEl.type = "password";
-        t.inputEl.addClass("vault-hub-text-input-wide");
-      }).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("GitHub personal access token").setDesc("Token used to create repos and push files. Requires the repo scope.").addText((text) => {
+      text.setPlaceholder("ghp_xxxxxxxxxxxx").setValue(this.plugin.settings.githubToken);
+      text.inputEl.type = "password";
+      text.inputEl.addClass("vault-hub-text-input-wide");
+      text.onChange((value) => {
         this.plugin.settings.githubToken = value;
-        await this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian.Setting(containerEl).setName("Vault hub URL").setDesc("URL of the vault hub website.").addText(
-      (text) => text.setPlaceholder("https://obsidianvaulthub.com").setValue(this.plugin.settings.vaultHubUrl).onChange(async (value) => {
+        void this.plugin.saveSettings();
+      });
+    });
+    new import_obsidian.Setting(containerEl).setName("Hub URL").setDesc("URL of the vault hub website.").addText(
+      (text) => text.setPlaceholder("https://obsidianvaulthub.com").setValue(this.plugin.settings.vaultHubUrl).onChange((value) => {
         this.plugin.settings.vaultHubUrl = value;
-        await this.plugin.saveSettings();
+        void this.plugin.saveSettings();
       })
     );
     new import_obsidian.Setting(containerEl).setName("Catalog repository").setDesc("Repository that stores the website catalog workflow. Used to request a refresh after publish or update.").addText(
-      (text) => text.setPlaceholder("Maws7140/vault-hub").setValue(this.plugin.settings.catalogRepoFullName).onChange(async (value) => {
+      (text) => text.setPlaceholder("Maws7140/vault-hub").setValue(this.plugin.settings.catalogRepoFullName).onChange((value) => {
         this.plugin.settings.catalogRepoFullName = value.trim();
-        await this.plugin.saveSettings();
+        void this.plugin.saveSettings();
       })
     );
     new import_obsidian.Setting(containerEl).setName("Default categories").setDesc("Comma-separated list of default categories for new publications.").addText(
-      (text) => text.setPlaceholder("Appearance, workflow").setValue(this.plugin.settings.defaultCategories.join(", ")).onChange(async (value) => {
+      (text) => text.setPlaceholder("Appearance, workflow").setValue(this.plugin.settings.defaultCategories.join(", ")).onChange((value) => {
         this.plugin.settings.defaultCategories = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-        await this.plugin.saveSettings();
+        void this.plugin.saveSettings();
       })
     );
   }
@@ -81,6 +81,16 @@ var VaultHubSettingTab = class extends import_obsidian.PluginSettingTab {
 var import_obsidian4 = require("obsidian");
 
 // src/detection.ts
+function parsePluginManifest(raw) {
+  const parsed = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null)
+    return null;
+  const { id, name, version, author } = parsed;
+  if (typeof id !== "string" || typeof name !== "string" || typeof version !== "string" || typeof author !== "string") {
+    return null;
+  }
+  return { id, name, version, author };
+}
 var MD_PATTERNS = [
   [/```dataviewjs/m, "dataview"],
   [/```dataview/m, "dataview"],
@@ -115,7 +125,9 @@ async function getInstalledPlugins(vault) {
     const manifestPath = `${folder}/manifest.json`;
     try {
       const raw = await vault.adapter.read(manifestPath);
-      const manifest = JSON.parse(raw);
+      const manifest = parsePluginManifest(raw);
+      if (!manifest)
+        continue;
       plugins.push({
         id: manifest.id,
         name: manifest.name,
@@ -312,6 +324,9 @@ var GitHubAPI = class {
       const data = await this.request(
         `/repos/${owner}/${repo}/contents/${this.encodePath(path)}`
       );
+      if (typeof data.sha !== "string" || typeof data.content !== "string") {
+        throw new Error(`Unexpected GitHub contents response for ${owner}/${repo}/${path}`);
+      }
       return { sha: data.sha, content: decodeBase64ToUtf8(data.content.replace(/\s/g, "")) };
     } catch (error) {
       if (String(error).includes("GitHub API 404"))
@@ -320,10 +335,13 @@ var GitHubAPI = class {
     }
   }
   async listFilesRecursive(owner, repo) {
-    const data = await this.request(`/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`);
-    if (!Array.isArray(data.tree))
+    const data = await this.request(
+      `/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`
+    );
+    const tree = Array.isArray(data.tree) ? data.tree.filter(isGitHubTreeItem) : [];
+    if (tree.length === 0)
       return [];
-    return data.tree.filter((item) => item.type === "blob").map((item) => ({
+    return tree.filter((item) => item.type === "blob").map((item) => ({
       path: item.path,
       sha: item.sha,
       download_url: `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${this.encodePath(item.path)}`,
@@ -362,6 +380,12 @@ var GitHubAPI = class {
     });
   }
 };
+function isGitHubTreeItem(value) {
+  if (typeof value !== "object" || value === null)
+    return false;
+  const item = value;
+  return typeof item.path === "string" && typeof item.sha === "string" && typeof item.type === "string";
+}
 
 // src/hubmd.ts
 function generateHubMd(data) {
@@ -605,8 +629,8 @@ async function listSnippetFiles(app) {
 async function getEnabledSnippetIds(app) {
   try {
     const raw = await app.vault.adapter.read(`${app.vault.configDir}/appearance.json`);
-    const parsed = JSON.parse(raw);
-    return new Set((parsed.enabledCssSnippets || []).map((value) => String(value || "").toLowerCase()));
+    const parsed = parseAppearanceConfig(raw);
+    return new Set(parsed.enabledCssSnippets.map((value) => value.toLowerCase()));
   } catch (e) {
     return /* @__PURE__ */ new Set();
   }
@@ -615,6 +639,7 @@ function snippetIdFromFile(file) {
   return file.name.replace(/\.css$/i, "").toLowerCase();
 }
 async function listImageFiles(app) {
+  await Promise.resolve();
   const imageExts = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
   return app.vault.getFiles().filter((f) => imageExts.has(f.extension.toLowerCase())).sort((a, b) => a.path.localeCompare(b.path)).map((f) => tfileToPublishFile(app, f));
 }
@@ -860,13 +885,7 @@ var PublishModal = class extends import_obsidian4.Modal {
       const discardBtn = draftBar.createEl("button", { text: "Start over" });
       discardBtn.type = "button";
       discardBtn.addClass("vault-hub-discard-btn");
-      discardBtn.addEventListener("click", () => {
-        void (async () => {
-          this.resetState();
-          await this.discardDraft();
-          this.renderStep();
-        })();
-      });
+      discardBtn.addEventListener("click", () => void this.resetDraftAndRender());
     }
     switch (this.step) {
       case 1:
@@ -940,7 +959,7 @@ var PublishModal = class extends import_obsidian4.Modal {
       });
     } else {
       fileSection.createEl("p", {
-        text: "Root README.md and hub.md are managed by Vault Hub and are excluded from resource files.",
+        text: "Root README.md and hub.md are managed by Vault hub and are excluded from resource files.",
         cls: "vault-hub-hint"
       });
     }
@@ -1348,10 +1367,7 @@ var PublishModal = class extends import_obsidian4.Modal {
         row.createSpan({ text: file.path });
       });
     };
-    screenshotSearch.addEventListener("input", () => {
-      this.screenshotSearchQuery = screenshotSearch.value;
-      void renderScreenshotList();
-    });
+    screenshotSearch.addEventListener("input", () => void this.updateScreenshotSearch(screenshotSearch, renderScreenshotList));
     void renderScreenshotList();
     if (this.resourceType === "snippet") {
       new import_obsidian4.Setting(c).setName("Compatible themes").addDropdown((dd) => {
@@ -1417,13 +1433,7 @@ var PublishModal = class extends import_obsidian4.Modal {
     summary.createEl("p", { text: `Categories: ${this.categories.join(", ") || "None"}` });
     const btnContainer = c.createDiv("vault-hub-nav");
     const backBtn = btnContainer.createEl("button", { text: "Back" });
-    backBtn.addEventListener("click", () => {
-      void (async () => {
-        this.step--;
-        await this.saveDraft();
-        this.renderStep();
-      })();
-    });
+    backBtn.addEventListener("click", () => void this.navigateStep(-1));
     const publishBtn = btnContainer.createEl("button", {
       text: "Publish",
       cls: "mod-cta"
@@ -1431,7 +1441,7 @@ var PublishModal = class extends import_obsidian4.Modal {
     publishBtn.addEventListener("click", () => void this.doPublish());
   }
   async doPublish() {
-    var _a, _b;
+    var _a;
     const token = this.plugin.settings.githubToken;
     if (!token) {
       new import_obsidian4.Notice("Set your GitHub token in vault hub settings first");
@@ -1492,8 +1502,8 @@ var PublishModal = class extends import_obsidian4.Modal {
       ]);
       status.setText("Generating hub.md...");
       const selectedPlugins = this.allPlugins.filter((p) => this.checkedPlugins.has(p.id)).map((p) => ({ ...p, autoDetected: true }));
-      const obsVer = this.app.appVersion || "unknown";
-      const themeName = ((_a = this.app.vault.config) == null ? void 0 : _a.cssTheme) || "default";
+      const obsVer = getAppVersion(this.app);
+      const themeName = getVaultThemeName(this.app.vault);
       const hubData = {
         type: publishedType,
         name: this.name,
@@ -1541,7 +1551,7 @@ var PublishModal = class extends import_obsidian4.Modal {
       }
       const publishedResource = {
         repoFullName: repo.full_name,
-        localFilePath: ((_b = resourceFiles[0]) == null ? void 0 : _b.path) || this.selectedFiles[0].path,
+        localFilePath: ((_a = resourceFiles[0]) == null ? void 0 : _a.path) || this.selectedFiles[0].path,
         localFiles: resourceFiles.map((f) => f.path),
         fileMappings: [
           ...resourceFiles.map((f) => ({ localPath: f.path, repoPath: f.path, kind: "resource" })),
@@ -1604,11 +1614,7 @@ var PublishModal = class extends import_obsidian4.Modal {
       back.addEventListener("click", () => {
         if (backCheck && !backCheck())
           return;
-        void (async () => {
-          this.step--;
-          await this.saveDraft();
-          this.renderStep();
-        })();
+        void this.navigateStep(-1);
       });
     }
     if (this.step < 5) {
@@ -1616,13 +1622,23 @@ var PublishModal = class extends import_obsidian4.Modal {
       next.addEventListener("click", () => {
         if (nextCheck && !nextCheck())
           return;
-        void (async () => {
-          this.step++;
-          await this.saveDraft();
-          this.renderStep();
-        })();
+        void this.navigateStep(1);
       });
     }
+  }
+  async resetDraftAndRender() {
+    this.resetState();
+    await this.discardDraft();
+    this.renderStep();
+  }
+  async navigateStep(delta) {
+    this.step += delta;
+    await this.saveDraft();
+    this.renderStep();
+  }
+  async updateScreenshotSearch(input, renderScreenshotList) {
+    this.screenshotSearchQuery = input.value;
+    await renderScreenshotList();
   }
   buildReadmeData() {
     const resourceFiles = this.getPublishResourceFiles();
@@ -1690,7 +1706,10 @@ var PublishModal = class extends import_obsidian4.Modal {
         localPath: file.path,
         repoPath: `screenshots/${candidate}`,
         name: stem,
-        readBinary: file.readBinary || (async () => new ArrayBuffer(0))
+        readBinary: file.readBinary || (async () => {
+          await Promise.resolve();
+          return new ArrayBuffer(0);
+        })
       };
     });
   }
@@ -1729,6 +1748,25 @@ var PublishModal = class extends import_obsidian4.Modal {
     return values.filter((value, index, all) => value && all.indexOf(value) === index);
   }
 };
+function parseAppearanceConfig(raw) {
+  const parsed = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null) {
+    return { enabledCssSnippets: [] };
+  }
+  const config = parsed;
+  const enabledCssSnippets = Array.isArray(config.enabledCssSnippets) ? config.enabledCssSnippets.filter(
+    (value) => typeof value === "string"
+  ) : [];
+  return { enabledCssSnippets };
+}
+function getAppVersion(app) {
+  const maybeVersion = app.appVersion;
+  return typeof maybeVersion === "string" ? maybeVersion : "unknown";
+}
+function getVaultThemeName(vault) {
+  const maybeConfig = vault.config;
+  return typeof (maybeConfig == null ? void 0 : maybeConfig.cssTheme) === "string" && maybeConfig.cssTheme.length > 0 ? maybeConfig.cssTheme : "default";
+}
 
 // src/modals/UpdateModal.ts
 var import_obsidian5 = require("obsidian");
@@ -1853,7 +1891,9 @@ var UpdateModal = class extends import_obsidian5.Modal {
     });
     const nav = c.createDiv("vault-hub-nav");
     const backBtn = nav.createEl("button", { text: "Back" });
-    backBtn.addEventListener("click", () => void this.renderSelect());
+    backBtn.addEventListener("click", () => {
+      void this.renderSelect();
+    });
     if (!this.selectedHasLocalMappings) {
       c.createEl("p", {
         text: "This repo was found from your GitHub account, but this vault has no local file mappings for it yet.",
@@ -1866,7 +1906,9 @@ var UpdateModal = class extends import_obsidian5.Modal {
         text: `Push ${changed.length} Change${changed.length !== 1 ? "s" : ""}`,
         cls: "mod-cta"
       });
-      pushBtn.addEventListener("click", () => void this.doPush(changed));
+      pushBtn.addEventListener("click", () => {
+        void this.doPush(changed);
+      });
     }
   }
   // ─── Step 3: push ─────────────────────────────────────────
@@ -2067,15 +2109,42 @@ function confirmModal(app, message) {
 function hasDashboardMarker(values) {
   return (values || []).some((value) => normalizeToken(value) === "dashboard");
 }
+function isCatalogType(value) {
+  return value === "vault" || value === "snippet" || value === "note" || value === "dashboard";
+}
+function isCatalogResourcePayload(value) {
+  if (typeof value !== "object" || value === null)
+    return false;
+  const resource = value;
+  return typeof resource.id === "string" && typeof resource.type === "string" && typeof resource.title === "string" && typeof resource.owner === "string" && typeof resource.repo_name === "string" && typeof resource.full_name === "string" && typeof resource.stars === "number";
+}
 function normalizeResource(resource) {
-  const rawType = resource.rawType || resource.type;
+  const rawType = isCatalogType(resource.rawType) ? resource.rawType : resource.type;
   const subtype = rawType === "dashboard" || hasDashboardMarker(resource.categories) || hasDashboardMarker(resource.tags) ? "dashboard" : null;
+  const type = isCatalogType(rawType) && rawType !== "dashboard" ? rawType : "note";
   return {
     ...resource,
-    rawType,
-    type: rawType === "dashboard" ? "note" : rawType,
+    rawType: isCatalogType(rawType) ? rawType : void 0,
+    type,
     subtype
   };
+}
+function getErrorMessage(value) {
+  if (typeof value !== "object" || value === null)
+    return null;
+  const payload = value;
+  for (const key of ["error", "message", "hint"]) {
+    const message = payload[key];
+    if (typeof message === "string" && message.length > 0)
+      return message;
+  }
+  return null;
+}
+function isGitHubTreeItem2(value) {
+  if (typeof value !== "object" || value === null)
+    return false;
+  const item = value;
+  return typeof item.path === "string" && typeof item.type === "string";
 }
 function getDisplayKind(resource) {
   return resource.subtype === "dashboard" ? "dashboard" : resource.type;
@@ -2173,6 +2242,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
     await this.loadActiveTab();
   }
   async onClose() {
+    await Promise.resolve();
     this.contentEl.empty();
   }
   async loadActiveTab() {
@@ -2257,12 +2327,9 @@ var BrowseView = class extends import_obsidian6.ItemView {
       }
       const data = await requestJson(`${baseUrl}/api/search?${params.toString()}`);
       if (!Array.isArray(data)) {
-        const errorPayload = data;
-        throw new Error((errorPayload == null ? void 0 : errorPayload.error) || (errorPayload == null ? void 0 : errorPayload.message) || (errorPayload == null ? void 0 : errorPayload.hint) || "Unexpected response from API");
+        throw new Error(getErrorMessage(data) || "Unexpected response from API");
       }
-      let resources = data.map(
-        (resource) => normalizeResource(resource)
-      );
+      let resources = data.filter(isCatalogResourcePayload).map((resource) => normalizeResource(resource));
       if (this.filterType === "dashboard") {
         resources = resources.filter((resource) => isDashboardResource(resource));
       }
@@ -2279,18 +2346,12 @@ var BrowseView = class extends import_obsidian6.ItemView {
       container.createEl("p", { text: "No resources found.", cls: "vault-hub-hint" });
       return;
     }
-    const typeColors = {
-      vault: "#7f6df2",
-      snippet: "#0e9aab",
-      note: "#fb923c",
-      dashboard: "#16a34a"
-    };
     this.resources.forEach((r) => {
       const displayKind = getDisplayKind(r);
       const card = container.createDiv("vault-hub-result-card");
       const badge = card.createSpan("vault-hub-type-badge");
       badge.setText(displayKind === "dashboard" ? "dashboard note" : r.type);
-      badge.style.backgroundColor = typeColors[displayKind] || "#666";
+      badge.dataset.kind = displayKind;
       card.createEl("h4", { text: r.title });
       if (r.tagline) {
         card.createEl("p", { text: r.tagline, cls: "vault-hub-hint" });
@@ -2332,11 +2393,12 @@ var BrowseView = class extends import_obsidian6.ItemView {
       `https://api.github.com/repos/${r.full_name}/git/trees/HEAD?recursive=1`,
       { headers: { Accept: "application/vnd.github.v3+json" } }
     );
-    if (!Array.isArray(treeData.tree)) {
+    const tree = Array.isArray(treeData.tree) ? treeData.tree.filter(isGitHubTreeItem2) : [];
+    if (tree.length === 0) {
       throw new Error(treeData.message || "Failed to fetch repository tree");
     }
     const textExts = /\.(md|canvas|txt|css|js|ts|json|yaml|yml|html|xml|svg|toml|ini|cfg)$/i;
-    const blobs = treeData.tree.filter(
+    const blobs = tree.filter(
       (item) => item.type === "blob" && !item.path.startsWith(".github/") && textExts.test(item.path)
     );
     const folderName = await this.availableFolder(r.repo_name);
@@ -2409,7 +2471,8 @@ var BrowseView = class extends import_obsidian6.ItemView {
     }
   }
   async notifyRequiredPluginsFromContent(hubMd, title) {
-    var _a;
+    var _a, _b;
+    await Promise.resolve();
     try {
       const frontmatter = extractFrontmatter(hubMd);
       if (!frontmatter)
@@ -2417,9 +2480,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
       const ids = parseRequiredPluginIds(frontmatter);
       if (ids.length === 0)
         return;
-      const installedPlugins = Object.keys(
-        ((_a = this.app.plugins) == null ? void 0 : _a.plugins) || {}
-      );
+      const installedPlugins = Object.keys((_b = (_a = getAppInternals(this.app).plugins) == null ? void 0 : _a.plugins) != null ? _b : {});
       const missing = ids.filter((id) => !installedPlugins.includes(id));
       if (missing.length === 0) {
         new import_obsidian6.Notice(`All required plugins already installed for "${title}"`);
@@ -2438,10 +2499,11 @@ var BrowseView = class extends import_obsidian6.ItemView {
       `https://api.github.com/repos/${r.full_name}/git/trees/HEAD?recursive=1`,
       { headers: { Accept: "application/vnd.github.v3+json" } }
     );
-    if (!Array.isArray(treeData.tree)) {
+    const tree = Array.isArray(treeData.tree) ? treeData.tree.filter(isGitHubTreeItem2) : [];
+    if (tree.length === 0) {
       throw new Error(treeData.message || "Failed to fetch repository tree");
     }
-    const cssFiles = treeData.tree.filter(
+    const cssFiles = tree.filter(
       (f) => f.type === "blob" && f.path.endsWith(".css")
     );
     if (cssFiles.length === 0) {
@@ -2467,10 +2529,11 @@ var BrowseView = class extends import_obsidian6.ItemView {
       `https://api.github.com/repos/${r.full_name}/git/trees/HEAD?recursive=1`,
       { headers: { Accept: "application/vnd.github.v3+json" } }
     );
-    if (!Array.isArray(treeData.tree)) {
+    const tree = Array.isArray(treeData.tree) ? treeData.tree.filter(isGitHubTreeItem2) : [];
+    if (tree.length === 0) {
       throw new Error(treeData.message || "Failed to fetch repository tree");
     }
-    const mdFiles = treeData.tree.filter(
+    const mdFiles = tree.filter(
       (f) => f.type === "blob" && f.path.endsWith(".md") && basename(f.path).toLowerCase() !== "readme.md"
     );
     if (mdFiles.length === 0) {
@@ -2547,8 +2610,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
       const raw = await this.app.vault.adapter.read(
         `${this.app.vault.configDir}/appearance.json`
       );
-      const parsed = JSON.parse(raw);
-      enabledSnippets = (_a = parsed == null ? void 0 : parsed.enabledCssSnippets) != null ? _a : [];
+      enabledSnippets = (_a = parseAppearanceConfig2(raw).enabledCssSnippets) != null ? _a : [];
     } catch (e) {
     }
     const list = container.createDiv("vault-hub-snippet-list");
@@ -2562,31 +2624,17 @@ var BrowseView = class extends import_obsidian6.ItemView {
         text: isEnabled ? "Enabled" : "Disabled",
         cls: `vault-hub-snippet-toggle${isEnabled ? " on" : ""}`
       });
-      toggleBtn.addEventListener("click", () => {
-        void (async () => {
-          await this.setSnippetEnabled(snippetId, !isEnabled);
-          await this.renderSnippetManager();
-        })();
-      });
+      toggleBtn.addEventListener("click", () => void this.toggleSnippet(snippetId, !isEnabled));
       const deleteBtn = actions.createEl("button", {
         text: "Delete",
         cls: "vault-hub-snippet-delete"
       });
-      deleteBtn.addEventListener("click", () => {
-        void (async () => {
-          const ok = await confirmModal(this.app, `Delete snippet "${snippetId}"?`);
-          if (!ok)
-            return;
-          await this.app.vault.adapter.remove(`${snippetsDir}/${fileName}`);
-          new import_obsidian6.Notice(`Deleted: ${snippetId}`);
-          await this.renderSnippetManager();
-        })();
-      });
+      deleteBtn.addEventListener("click", () => void this.deleteSnippet(snippetsDir, fileName, snippetId));
     }
   }
   async setSnippetEnabled(snippetId, enable) {
-    var _a, _b;
-    const css = this.app.customCss;
+    var _a, _b, _c;
+    const css = getAppInternals(this.app).customCss;
     if (css) {
       if (css.setCssEnabledStatus) {
         css.setCssEnabledStatus(snippetId, enable);
@@ -2608,10 +2656,10 @@ var BrowseView = class extends import_obsidian6.ItemView {
       const appearancePath = `${this.app.vault.configDir}/appearance.json`;
       let appearance = {};
       try {
-        appearance = JSON.parse(await this.app.vault.adapter.read(appearancePath));
+        appearance = parseAppearanceConfig2(await this.app.vault.adapter.read(appearancePath));
       } catch (e) {
       }
-      const enabled = appearance.enabledCssSnippets || [];
+      const enabled = (_c = appearance.enabledCssSnippets) != null ? _c : [];
       if (enable && !enabled.includes(snippetId)) {
         enabled.push(snippetId);
       } else if (!enable) {
@@ -2626,7 +2674,33 @@ var BrowseView = class extends import_obsidian6.ItemView {
       new import_obsidian6.Notice(`Failed to toggle snippet: ${e}`);
     }
   }
+  async toggleSnippet(snippetId, enable) {
+    await this.setSnippetEnabled(snippetId, enable);
+    await this.renderSnippetManager();
+  }
+  async deleteSnippet(snippetsDir, fileName, snippetId) {
+    const ok = await confirmModal(this.app, `Delete snippet "${snippetId}"?`);
+    if (!ok)
+      return;
+    await this.app.vault.adapter.remove(`${snippetsDir}/${fileName}`);
+    new import_obsidian6.Notice(`Deleted: ${snippetId}`);
+    await this.renderSnippetManager();
+  }
 };
+function getAppInternals(app) {
+  return app;
+}
+function parseAppearanceConfig2(raw) {
+  const parsed = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null) {
+    return { enabledCssSnippets: [] };
+  }
+  const config = parsed;
+  return {
+    ...config,
+    enabledCssSnippets: Array.isArray(config.enabledCssSnippets) ? config.enabledCssSnippets.filter((value) => typeof value === "string") : []
+  };
+}
 
 // src/main.ts
 var VaultHubPlugin = class extends import_obsidian7.Plugin {
@@ -2650,7 +2724,9 @@ var VaultHubPlugin = class extends import_obsidian7.Plugin {
     this.addCommand({
       id: "browse-resources",
       name: "Browse resources",
-      callback: () => this.activateBrowseView()
+      callback: () => {
+        void this.activateBrowseView();
+      }
     });
     this.addSettingTab(new VaultHubSettingTab(this.app, this));
     this.addRibbonIcon("globe", "Vault hub", () => {
@@ -2661,7 +2737,10 @@ var VaultHubPlugin = class extends import_obsidian7.Plugin {
   }
   async loadSettings() {
     const data = await this.loadData();
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, data != null ? data : {});
+    this.settings = {
+      ...DEFAULT_SETTINGS,
+      ...isVaultHubSettingsData(data) ? data : {}
+    };
   }
   async saveSettings() {
     await this.saveData(this.settings);
@@ -2677,7 +2756,14 @@ var VaultHubPlugin = class extends import_obsidian7.Plugin {
       }
     }
     if (leaf) {
-      void workspace.revealLeaf(leaf);
+      if ((0, import_obsidian7.requireApiVersion)("1.7.2")) {
+        await workspace.revealLeaf(leaf);
+      } else {
+        workspace.setActiveLeaf(leaf, { focus: true });
+      }
     }
   }
 };
+function isVaultHubSettingsData(value) {
+  return typeof value === "object" && value !== null;
+}

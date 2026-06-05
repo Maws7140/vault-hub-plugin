@@ -17,6 +17,23 @@ interface PluginManifest {
   author: string;
 }
 
+function parsePluginManifest(raw: string): PluginManifest | null {
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== "object" || parsed === null) return null;
+
+  const { id, name, version, author } = parsed as Record<string, unknown>;
+  if (
+    typeof id !== "string" ||
+    typeof name !== "string" ||
+    typeof version !== "string" ||
+    typeof author !== "string"
+  ) {
+    return null;
+  }
+
+  return { id, name, version, author };
+}
+
 const MD_PATTERNS: [RegExp, string][] = [
   [/```dataviewjs/m, "dataview"],
   [/```dataview/m, "dataview"],
@@ -56,7 +73,8 @@ export async function getInstalledPlugins(
     const manifestPath = `${folder}/manifest.json`;
     try {
       const raw = await vault.adapter.read(manifestPath);
-      const manifest = JSON.parse(raw) as PluginManifest;
+      const manifest = parsePluginManifest(raw);
+      if (!manifest) continue;
       plugins.push({
         id: manifest.id,
         name: manifest.name,
