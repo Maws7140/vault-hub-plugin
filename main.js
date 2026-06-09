@@ -48,7 +48,7 @@ var VaultHubSettingTab = class extends import_obsidian.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     new import_obsidian.Setting(containerEl).setName("GitHub personal access token").setDesc("Token used to create repos and push files. Requires the repo scope.").addText((text) => {
-      text.setPlaceholder("ghp_xxxxxxxxxxxx").setValue(this.plugin.settings.githubToken);
+      text.setPlaceholder("GitHub personal access token").setValue(this.plugin.settings.githubToken);
       text.inputEl.type = "password";
       text.inputEl.addClass("vault-hub-text-input-wide");
       text.onChange((value) => {
@@ -83,8 +83,7 @@ var import_obsidian4 = require("obsidian");
 // src/detection.ts
 function parsePluginManifest(raw) {
   const parsed = JSON.parse(raw);
-  if (typeof parsed !== "object" || parsed === null)
-    return null;
+  if (typeof parsed !== "object" || parsed === null) return null;
   const { id, name, version, author } = parsed;
   if (typeof id !== "string" || typeof name !== "string" || typeof version !== "string" || typeof author !== "string") {
     return null;
@@ -126,8 +125,7 @@ async function getInstalledPlugins(vault) {
     try {
       const raw = await vault.adapter.read(manifestPath);
       const manifest = parsePluginManifest(raw);
-      if (!manifest)
-        continue;
+      if (!manifest) continue;
       plugins.push({
         id: manifest.id,
         name: manifest.name,
@@ -192,15 +190,13 @@ async function requestText(url, options = {}) {
 function encodeUtf8ToBase64(input) {
   const bytes = new TextEncoder().encode(input);
   let binary = "";
-  for (const b of bytes)
-    binary += String.fromCharCode(b);
+  for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary);
 }
 function decodeBase64ToUtf8(input) {
   const binary = atob(input);
   const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++)
-    bytes[i] = binary.charCodeAt(i);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new TextDecoder().decode(bytes);
 }
 var GitHubAPI = class {
@@ -242,11 +238,9 @@ var GitHubAPI = class {
       const batch = await this.request(
         `/user/repos?per_page=100&page=${page}&affiliation=owner&sort=updated`
       );
-      if (!Array.isArray(batch) || batch.length === 0)
-        break;
+      if (!Array.isArray(batch) || batch.length === 0) break;
       repos.push(...batch);
-      if (batch.length < 100)
-        break;
+      if (batch.length < 100) break;
     }
     return repos;
   }
@@ -287,8 +281,7 @@ var GitHubAPI = class {
       );
       return typeof (data == null ? void 0 : data.sha) === "string" ? data.sha : null;
     } catch (error) {
-      if (String(error).includes("GitHub API 404"))
-        return null;
+      if (String(error).includes("GitHub API 404")) return null;
       throw error;
     }
   }
@@ -329,8 +322,7 @@ var GitHubAPI = class {
       }
       return { sha: data.sha, content: decodeBase64ToUtf8(data.content.replace(/\s/g, "")) };
     } catch (error) {
-      if (String(error).includes("GitHub API 404"))
-        return null;
+      if (String(error).includes("GitHub API 404")) return null;
       throw error;
     }
   }
@@ -339,8 +331,7 @@ var GitHubAPI = class {
       `/repos/${owner}/${repo}/git/trees/HEAD?recursive=1`
     );
     const tree = Array.isArray(data.tree) ? data.tree.filter(isGitHubTreeItem) : [];
-    if (tree.length === 0)
-      return [];
+    if (tree.length === 0) return [];
     return tree.filter((item) => item.type === "blob").map((item) => ({
       path: item.path,
       sha: item.sha,
@@ -363,8 +354,7 @@ var GitHubAPI = class {
         candidate = `${baseName}-${suffix}`;
         suffix++;
       } catch (error) {
-        if (String(error).includes("GitHub API 404"))
-          return candidate;
+        if (String(error).includes("GitHub API 404")) return candidate;
         throw error;
       }
     }
@@ -381,8 +371,7 @@ var GitHubAPI = class {
   }
 };
 function isGitHubTreeItem(value) {
-  if (typeof value !== "object" || value === null)
-    return false;
+  if (typeof value !== "object" || value === null) return false;
   const item = value;
   return typeof item.path === "string" && typeof item.sha === "string" && typeof item.type === "string";
 }
@@ -425,10 +414,8 @@ function generateHubMd(data) {
     lines.push("attached_snippets:");
     data.attachedSnippets.forEach((snippet) => {
       lines.push(`  - path: "${esc(snippet.path)}"`);
-      if (snippet.name)
-        lines.push(`    name: "${esc(snippet.name)}"`);
-      if (snippet.optional)
-        lines.push("    optional: true");
+      if (snippet.name) lines.push(`    name: "${esc(snippet.name)}"`);
+      if (snippet.optional) lines.push("    optional: true");
     });
   }
   lines.push("environment:");
@@ -566,8 +553,7 @@ ${section}`;
   return normalized;
 }
 function buildScreenshotSection(screenshots) {
-  if (screenshots.length === 0)
-    return "";
+  if (screenshots.length === 0) return "";
   const lines = ["## Screenshots", ""];
   screenshots.forEach((screenshot) => {
     const alt = screenshot.alt || screenshot.path.split("/").pop() || "Screenshot";
@@ -598,8 +584,7 @@ async function listSnippetFiles(app) {
   const dir = getSnippetDirectory(app.vault);
   try {
     const exists = await adapter.exists(dir);
-    if (!exists)
-      return [];
+    if (!exists) return [];
     const { files } = await adapter.list(dir);
     const cssFiles = files.filter((p) => p.toLowerCase().endsWith(".css"));
     return Promise.all(
@@ -732,10 +717,8 @@ var PublishModal = class extends import_obsidian4.Modal {
     this.contentEl.empty();
   }
   getPublishedType() {
-    if (this.resourceType === "snippet")
-      return "snippet";
-    if (this.resourceType === "bundle")
-      return "vault";
+    if (this.resourceType === "snippet") return "snippet";
+    if (this.resourceType === "bundle") return "vault";
     return "note";
   }
   async initialize() {
@@ -745,8 +728,7 @@ var PublishModal = class extends import_obsidian4.Modal {
   }
   restoreDraft() {
     const draft = this.plugin.settings.publishDraft;
-    if (!draft)
-      return;
+    if (!draft) return;
     this.step = Math.min(Math.max(draft.step || 1, 1), 5);
     this.resourceType = draft.resourceType || "snippet";
     this.pendingSelectedFilePaths = [...draft.selectedFilePaths || []];
@@ -861,8 +843,7 @@ var PublishModal = class extends import_obsidian4.Modal {
     this.restoredDraft = false;
   }
   restoreSelectionFromPaths(files, pendingPaths, assign) {
-    if (!pendingPaths)
-      return;
+    if (!pendingPaths) return;
     const wanted = new Set(pendingPaths);
     assign(files.filter((file) => wanted.has(file.path)));
   }
@@ -874,10 +855,8 @@ var PublishModal = class extends import_obsidian4.Modal {
     const progress = header.createDiv("vault-hub-progress");
     for (let i = 1; i <= 5; i++) {
       const dot = progress.createSpan("vault-hub-dot");
-      if (i === this.step)
-        dot.addClass("active");
-      else if (i < this.step)
-        dot.addClass("done");
+      if (i === this.step) dot.addClass("active");
+      else if (i < this.step) dot.addClass("done");
     }
     if (this.restoredDraft) {
       const draftBar = this.contentEl.createDiv("vault-hub-hint");
@@ -1007,10 +986,8 @@ var PublishModal = class extends import_obsidian4.Modal {
         cb.checked = selectedPaths.has(f.path);
         cb.addEventListener("change", () => {
           if (isBundle) {
-            if (cb.checked)
-              this.selectedFiles.push(f);
-            else
-              this.selectedFiles = this.selectedFiles.filter((x) => x.path !== f.path);
+            if (cb.checked) this.selectedFiles.push(f);
+            else this.selectedFiles = this.selectedFiles.filter((x) => x.path !== f.path);
           } else {
             this.selectedFiles = cb.checked ? [f] : [];
           }
@@ -1031,8 +1008,7 @@ var PublishModal = class extends import_obsidian4.Modal {
       });
       const filterSnippets = () => {
         const needle = this.attachedSnippetSearchQuery.trim().toLowerCase();
-        if (!needle)
-          return availableSnippets;
+        if (!needle) return availableSnippets;
         return availableSnippets.filter((file) => {
           const haystack = `${file.name} ${file.path}`.toLowerCase();
           return haystack.includes(needle);
@@ -1065,10 +1041,8 @@ var PublishModal = class extends import_obsidian4.Modal {
             const cb = row.createEl("input", { type: "checkbox" });
             cb.checked = selectedSnippetPaths.has(file.path);
             cb.addEventListener("change", () => {
-              if (cb.checked)
-                this.selectedAttachedSnippets.push(file);
-              else
-                this.selectedAttachedSnippets = this.selectedAttachedSnippets.filter((x) => x.path !== file.path);
+              if (cb.checked) this.selectedAttachedSnippets.push(file);
+              else this.selectedAttachedSnippets = this.selectedAttachedSnippets.filter((x) => x.path !== file.path);
             });
             row.createSpan({ text: file.path });
           });
@@ -1114,8 +1088,7 @@ var PublishModal = class extends import_obsidian4.Modal {
     loading.remove();
     if (this.checkedPlugins.size === 0) {
       this.allPlugins.forEach((p) => {
-        if (p.autoDetected)
-          this.checkedPlugins.add(p.id);
+        if (p.autoDetected) this.checkedPlugins.add(p.id);
       });
     }
     if (this.allPlugins.length > 0) {
@@ -1145,10 +1118,8 @@ var PublishModal = class extends import_obsidian4.Modal {
           const cb = row.createEl("input", { type: "checkbox" });
           cb.checked = this.checkedPlugins.has(p.id);
           cb.addEventListener("change", () => {
-            if (cb.checked)
-              this.checkedPlugins.add(p.id);
-            else
-              this.checkedPlugins.delete(p.id);
+            if (cb.checked) this.checkedPlugins.add(p.id);
+            else this.checkedPlugins.delete(p.id);
             updateCount();
           });
           const info = row.createDiv("vault-hub-plugin-info");
@@ -1299,8 +1270,7 @@ var PublishModal = class extends import_obsidian4.Modal {
         cb.checked = selected.has(cat);
         cb.addEventListener("change", () => {
           if (cb.checked) {
-            if (!this.categories.includes(cat))
-              this.categories.push(cat);
+            if (!this.categories.includes(cat)) this.categories.push(cat);
           } else {
             this.categories = this.categories.filter((value) => value !== cat);
           }
@@ -1359,10 +1329,8 @@ var PublishModal = class extends import_obsidian4.Modal {
         const cb = row.createEl("input", { type: "checkbox" });
         cb.checked = selectedImagePaths.has(file.path);
         cb.addEventListener("change", () => {
-          if (cb.checked)
-            this.selectedScreenshots.push(file);
-          else
-            this.selectedScreenshots = this.selectedScreenshots.filter((x) => x.path !== file.path);
+          if (cb.checked) this.selectedScreenshots.push(file);
+          else this.selectedScreenshots = this.selectedScreenshots.filter((x) => x.path !== file.path);
         });
         row.createSpan({ text: file.path });
       });
@@ -1612,16 +1580,14 @@ var PublishModal = class extends import_obsidian4.Modal {
     if (this.step > 1) {
       const back = nav.createEl("button", { text: "Back" });
       back.addEventListener("click", () => {
-        if (backCheck && !backCheck())
-          return;
+        if (backCheck && !backCheck()) return;
         void this.navigateStep(-1);
       });
     }
     if (this.step < 5) {
       const next = nav.createEl("button", { text: "Next", cls: "mod-cta" });
       next.addEventListener("click", () => {
-        if (nextCheck && !nextCheck())
-          return;
+        if (nextCheck && !nextCheck()) return;
         void this.navigateStep(1);
       });
     }
@@ -1718,11 +1684,9 @@ var PublishModal = class extends import_obsidian4.Modal {
   }
   extractMarkdownUrl(value) {
     const imageMatch = value.match(/^!\[[^\]]*\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)$/);
-    if (imageMatch)
-      return imageMatch[1];
+    if (imageMatch) return imageMatch[1];
     const linkMatch = value.match(/^\[[^\]]+\]\(([^)\s]+)(?:\s+["'][^"']*["'])?\)$/);
-    if (linkMatch)
-      return linkMatch[1];
+    if (linkMatch) return linkMatch[1];
     return value.replace(/^["']|["']$/g, "");
   }
   extractMarkdownImageUrls(value) {
@@ -1739,8 +1703,7 @@ var PublishModal = class extends import_obsidian4.Modal {
     return urls;
   }
   resolvePublishedAssetUrl(owner, repo, url) {
-    if (/^(https?:|data:|blob:)/i.test(url))
-      return url;
+    if (/^(https?:|data:|blob:)/i.test(url)) return url;
     const clean = url.replace(/^\.?\//, "").replace(/^blob\/[^/]+\//, "");
     return `https://raw.githubusercontent.com/${owner}/${repo}/HEAD/${clean}`;
   }
@@ -1837,8 +1800,7 @@ var UpdateModal = class extends import_obsidian5.Modal {
       this.selectedHasLocalMappings = fileMappings.length > 0;
       this.files = [];
       for (const mapping of fileMappings) {
-        if (!mapping.localPath.match(/\.(md|css|yml|yaml|js|json|txt|canvas)$/i))
-          continue;
+        if (!mapping.localPath.match(/\.(md|css|yml|yaml|js|json|txt|canvas)$/i)) continue;
         const entry = {
           name: mapping.repoPath,
           localPath: mapping.localPath,
@@ -1975,8 +1937,7 @@ var UpdateModal = class extends import_obsidian5.Modal {
   }
   getFileMappings(resource) {
     var _a, _b;
-    if ((_a = resource.fileMappings) == null ? void 0 : _a.length)
-      return resource.fileMappings.filter((mapping) => Boolean(mapping.localPath));
+    if ((_a = resource.fileMappings) == null ? void 0 : _a.length) return resource.fileMappings.filter((mapping) => Boolean(mapping.localPath));
     const localFiles = ((_b = resource.localFiles) == null ? void 0 : _b.filter(Boolean)) || (resource.localFilePath ? [resource.localFilePath] : []);
     return localFiles.map((path) => ({
       localPath: path,
@@ -2000,8 +1961,7 @@ var UpdateModal = class extends import_obsidian5.Modal {
         const repos = await gh.listAuthenticatedRepos();
         for (const repo of repos) {
           const inferredType = inferPublishedType(repo.name);
-          if (!inferredType)
-            continue;
+          if (!inferredType) continue;
           const existing = merged.get(repo.full_name);
           if (existing) {
             merged.set(repo.full_name, {
@@ -2048,23 +2008,17 @@ var UpdateModal = class extends import_obsidian5.Modal {
 };
 function timeAgo(date) {
   const s = Math.floor((Date.now() - date.getTime()) / 1e3);
-  if (s < 60)
-    return "just now";
+  if (s < 60) return "just now";
   const m = Math.floor(s / 60);
-  if (m < 60)
-    return `${m}m ago`;
+  if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24)
-    return `${h}h ago`;
+  if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 }
 function inferPublishedType(repoName) {
-  if (repoName.startsWith("obsidian-snippet-"))
-    return "snippet";
-  if (repoName.startsWith("obsidian-note-"))
-    return "note";
-  if (repoName.startsWith("obsidian-vault-"))
-    return "vault";
+  if (repoName.startsWith("obsidian-snippet-")) return "snippet";
+  if (repoName.startsWith("obsidian-note-")) return "note";
+  if (repoName.startsWith("obsidian-vault-")) return "vault";
   return null;
 }
 function newerDate(a, b) {
@@ -2113,8 +2067,7 @@ function isCatalogType(value) {
   return value === "vault" || value === "snippet" || value === "note" || value === "dashboard";
 }
 function isCatalogResourcePayload(value) {
-  if (typeof value !== "object" || value === null)
-    return false;
+  if (typeof value !== "object" || value === null) return false;
   const resource = value;
   return typeof resource.id === "string" && typeof resource.type === "string" && typeof resource.title === "string" && typeof resource.owner === "string" && typeof resource.repo_name === "string" && typeof resource.full_name === "string" && typeof resource.stars === "number";
 }
@@ -2130,19 +2083,16 @@ function normalizeResource(resource) {
   };
 }
 function getErrorMessage(value) {
-  if (typeof value !== "object" || value === null)
-    return null;
+  if (typeof value !== "object" || value === null) return null;
   const payload = value;
   for (const key of ["error", "message", "hint"]) {
     const message = payload[key];
-    if (typeof message === "string" && message.length > 0)
-      return message;
+    if (typeof message === "string" && message.length > 0) return message;
   }
   return null;
 }
 function isGitHubTreeItem2(value) {
-  if (typeof value !== "object" || value === null)
-    return false;
+  if (typeof value !== "object" || value === null) return false;
   const item = value;
   return typeof item.path === "string" && typeof item.type === "string";
 }
@@ -2170,13 +2120,10 @@ function parseRequiredPluginIds(frontmatter) {
       inPlugins = true;
       continue;
     }
-    if (inPlugins && /^[A-Za-z0-9_-][^:]*:\s*/.test(line))
-      break;
-    if (!inPlugins)
-      continue;
+    if (inPlugins && /^[A-Za-z0-9_-][^:]*:\s*/.test(line)) break;
+    if (!inPlugins) continue;
     const match = line.match(/^\s*-\s*id:\s*(.+)\s*$/);
-    if (match)
-      ids.push(match[1].trim().replace(/^["']|["']$/g, ""));
+    if (match) ids.push(match[1].trim().replace(/^["']|["']$/g, ""));
   }
   return ids;
 }
@@ -2185,8 +2132,7 @@ function parseAttachedSnippets(frontmatter) {
   let inAttachedSnippets = false;
   let current = null;
   const pushCurrent = () => {
-    if (current == null ? void 0 : current.path)
-      snippets.push(current);
+    if (current == null ? void 0 : current.path) snippets.push(current);
     current = null;
   };
   for (const line of frontmatter.split(/\r?\n/)) {
@@ -2198,8 +2144,7 @@ function parseAttachedSnippets(frontmatter) {
       pushCurrent();
       break;
     }
-    if (!inAttachedSnippets)
-      continue;
+    if (!inAttachedSnippets) continue;
     const pathMatch = line.match(/^\s*-\s*path:\s*(.+)\s*$/);
     if (pathMatch) {
       pushCurrent();
@@ -2263,8 +2208,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
         cls: `vault-hub-tab${this.activeTab === tab ? " active" : ""}`
       });
       btn.addEventListener("click", () => {
-        if (this.activeTab === tab)
-          return;
+        if (this.activeTab === tab) return;
         this.activeTab = tab;
         this.render();
         void this.loadActiveTab();
@@ -2282,8 +2226,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
         this.searchQuery = input.value;
       });
       input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter")
-          void this.loadResources();
+        if (e.key === "Enter") void this.loadResources();
       });
       const searchBtn = searchRow.createEl("button", { text: "Search" });
       searchBtn.addEventListener("click", () => void this.loadResources());
@@ -2311,8 +2254,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
   // ─── BROWSE TAB ───────────────────────────────────────────────
   async loadResources() {
     const resultsEl = this.contentEl.querySelector(".vault-hub-results");
-    if (!resultsEl)
-      return;
+    if (!resultsEl) return;
     resultsEl.empty();
     resultsEl.createEl("p", { text: "Loading...", cls: "vault-hub-hint" });
     try {
@@ -2426,8 +2368,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
     }
   }
   async ensureDir(dirPath) {
-    if (!dirPath)
-      return;
+    if (!dirPath) return;
     const parts = dirPath.split("/");
     let current = "";
     for (const part of parts) {
@@ -2438,8 +2379,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
     }
   }
   async availablePath(path) {
-    if (!await this.app.vault.adapter.exists(path))
-      return path;
+    if (!await this.app.vault.adapter.exists(path)) return path;
     const slash = path.lastIndexOf("/");
     const dir = slash >= 0 ? path.slice(0, slash + 1) : "";
     const file = slash >= 0 ? path.slice(slash + 1) : path;
@@ -2475,11 +2415,9 @@ var BrowseView = class extends import_obsidian6.ItemView {
     await Promise.resolve();
     try {
       const frontmatter = extractFrontmatter(hubMd);
-      if (!frontmatter)
-        return;
+      if (!frontmatter) return;
       const ids = parseRequiredPluginIds(frontmatter);
-      if (ids.length === 0)
-        return;
+      if (ids.length === 0) return;
       const installedPlugins = Object.keys((_b = (_a = getAppInternals(this.app).plugins) == null ? void 0 : _a.plugins) != null ? _b : {});
       const missing = ids.filter((id) => !installedPlugins.includes(id));
       if (missing.length === 0) {
@@ -2556,11 +2494,9 @@ var BrowseView = class extends import_obsidian6.ItemView {
   }
   async installAttachedSnippets(r, hubMd) {
     const frontmatter = extractFrontmatter(hubMd);
-    if (!frontmatter)
-      return;
+    if (!frontmatter) return;
     const attachedSnippets = parseAttachedSnippets(frontmatter);
-    if (attachedSnippets.length === 0)
-      return;
+    if (attachedSnippets.length === 0) return;
     const snippetsDir = getSnippetDirectory(this.app.vault);
     if (!await this.app.vault.adapter.exists(snippetsDir)) {
       await this.app.vault.adapter.mkdir(snippetsDir);
@@ -2589,8 +2525,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
   async renderSnippetManager() {
     var _a;
     const container = this.contentEl.querySelector(".vault-hub-snippets-container");
-    if (!container)
-      return;
+    if (!container) return;
     container.empty();
     const snippetsDir = getSnippetDirectory(this.app.vault);
     let files;
@@ -2643,10 +2578,8 @@ var BrowseView = class extends import_obsidian6.ItemView {
         return;
       }
       if (css.enabledSnippets) {
-        if (enable)
-          css.enabledSnippets.add(snippetId);
-        else
-          css.enabledSnippets.delete(snippetId);
+        if (enable) css.enabledSnippets.add(snippetId);
+        else css.enabledSnippets.delete(snippetId);
         (_b = css.requestLoadSnippets) == null ? void 0 : _b.call(css);
         new import_obsidian6.Notice(`Snippet "${snippetId}" ${enable ? "enabled" : "disabled"}`);
         return;
@@ -2664,8 +2597,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
         enabled.push(snippetId);
       } else if (!enable) {
         const i = enabled.indexOf(snippetId);
-        if (i !== -1)
-          enabled.splice(i, 1);
+        if (i !== -1) enabled.splice(i, 1);
       }
       appearance.enabledCssSnippets = enabled;
       await this.app.vault.adapter.write(appearancePath, JSON.stringify(appearance, null, 2));
@@ -2680,8 +2612,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
   }
   async deleteSnippet(snippetsDir, fileName, snippetId) {
     const ok = await confirmModal(this.app, `Delete snippet "${snippetId}"?`);
-    if (!ok)
-      return;
+    if (!ok) return;
     await this.app.vault.adapter.remove(`${snippetsDir}/${fileName}`);
     new import_obsidian6.Notice(`Deleted: ${snippetId}`);
     await this.renderSnippetManager();
@@ -2737,10 +2668,7 @@ var VaultHubPlugin = class extends import_obsidian7.Plugin {
   }
   async loadSettings() {
     const data = await this.loadData();
-    this.settings = {
-      ...DEFAULT_SETTINGS,
-      ...isVaultHubSettingsData(data) ? data : {}
-    };
+    this.settings = parseSettings(data);
   }
   async saveSettings() {
     await this.saveData(this.settings);
@@ -2764,6 +2692,27 @@ var VaultHubPlugin = class extends import_obsidian7.Plugin {
     }
   }
 };
-function isVaultHubSettingsData(value) {
-  return typeof value === "object" && value !== null;
+function parseSettings(value) {
+  if (typeof value !== "object" || value === null) {
+    return { ...DEFAULT_SETTINGS };
+  }
+  const data = value;
+  return {
+    githubToken: typeof data.githubToken === "string" ? data.githubToken : DEFAULT_SETTINGS.githubToken,
+    defaultCategories: Array.isArray(data.defaultCategories) ? data.defaultCategories.filter((item) => typeof item === "string") : [...DEFAULT_SETTINGS.defaultCategories],
+    vaultHubUrl: typeof data.vaultHubUrl === "string" ? data.vaultHubUrl : DEFAULT_SETTINGS.vaultHubUrl,
+    catalogRepoFullName: typeof data.catalogRepoFullName === "string" ? data.catalogRepoFullName : DEFAULT_SETTINGS.catalogRepoFullName,
+    publishedResources: Array.isArray(data.publishedResources) ? data.publishedResources.filter(isPublishedResource) : [...DEFAULT_SETTINGS.publishedResources],
+    publishDraft: isPublishDraft(data.publishDraft) ? data.publishDraft : DEFAULT_SETTINGS.publishDraft
+  };
+}
+function isPublishedResource(value) {
+  if (typeof value !== "object" || value === null) return false;
+  const resource = value;
+  return typeof resource.repoFullName === "string" && typeof resource.localFilePath === "string" && typeof resource.lastPublishedAt === "string" && (resource.type === "snippet" || resource.type === "note" || resource.type === "vault" || resource.type === "bundle");
+}
+function isPublishDraft(value) {
+  if (typeof value !== "object" || value === null) return false;
+  const draft = value;
+  return typeof draft.step === "number" && (draft.resourceType === "snippet" || draft.resourceType === "note" || draft.resourceType === "bundle") && Array.isArray(draft.selectedFilePaths) && Array.isArray(draft.attachedSnippetPaths) && Array.isArray(draft.screenshotPaths) && typeof draft.externalScreenshotUrls === "string" && typeof draft.fileSearchQuery === "string" && typeof draft.attachedSnippetSearchQuery === "string" && typeof draft.screenshotSearchQuery === "string" && Array.isArray(draft.checkedPluginIds) && typeof draft.name === "string" && typeof draft.tagline === "string" && typeof draft.description === "string" && Array.isArray(draft.categories) && typeof draft.tags === "string" && Array.isArray(draft.compatibleThemes) && typeof draft.readmeContent === "string";
 }

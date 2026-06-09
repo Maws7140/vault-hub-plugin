@@ -72,8 +72,7 @@ export class VaultHubSettingTab extends PluginSettingTab {
       .setName("GitHub personal access token")
       .setDesc("Token used to create repos and push files. Requires the repo scope.")
       .addText((text) => {
-        // eslint-disable-next-line obsidianmd/ui/sentence-case
-        text.setPlaceholder("ghp_xxxxxxxxxxxx").setValue(this.plugin.settings.githubToken);
+        text.setPlaceholder("GitHub personal access token").setValue(this.plugin.settings.githubToken);
         text.inputEl.type = "password";
         text.inputEl.addClass("vault-hub-text-input-wide");
         text.onChange((value) => {
