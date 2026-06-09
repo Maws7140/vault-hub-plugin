@@ -1,6 +1,6 @@
 {
   "name": "vault-hub-plugin",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Obsidian plugin for Vault Hub community platform",
   "main": "main.js",
   "scripts": {

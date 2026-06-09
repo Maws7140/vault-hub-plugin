@@ -5,7 +5,6 @@ import {
   Modal,
   Setting,
   Notice,
-  TFile,
   TextAreaComponent,
   DropdownComponent,
   Platform,
@@ -63,15 +62,70 @@ function isReservedRootPath(path: string): boolean {
   return RESERVED_ROOT_PATHS.has(path.trim().replace(/\\/g, "/").toLowerCase());
 }
 
-function tfileToPublishFile(app: App, f: TFile): PublishFile {
+function normalizeVaultPath(path: string): string {
+  return path.trim().replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function basename(path: string): string {
+  return path.split("/").pop() || path;
+}
+
+function extensionFromPath(path: string): string {
+  const name = basename(path);
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+}
+
+function parsePathLines(value: string): string[] {
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  for (const line of value.split(/\r?\n/)) {
+    const path = normalizeVaultPath(line);
+    if (!path || seen.has(path.toLowerCase())) continue;
+    seen.add(path.toLowerCase());
+    paths.push(path);
+  }
+  return paths;
+}
+
+async function pathToPublishFile(app: App, path: string, allowedExtensions: Set<string>): Promise<PublishFile> {
+  const normalizedPath = normalizeVaultPath(path);
+  if (!normalizedPath) throw new Error("Path is required");
+  if (isReservedRootPath(normalizedPath)) {
+    throw new Error(`${normalizedPath} is managed by Vault Hub and cannot be published as a resource file`);
+  }
+
+  const extension = extensionFromPath(normalizedPath);
+  if (!allowedExtensions.has(extension)) {
+    throw new Error(`${normalizedPath} must be a ${[...allowedExtensions].join(" or ")} file`);
+  }
+
+  const adapter = app.vault.adapter;
+  if (!(await adapter.exists(normalizedPath))) {
+    throw new Error(`${normalizedPath} was not found`);
+  }
+
+  const stat = await adapter.stat(normalizedPath);
   return {
-    path: f.path,
-    name: f.name,
-    extension: f.extension,
-    size: f.stat.size,
-    read: () => app.vault.read(f),
-    readBinary: () => app.vault.adapter.readBinary(f.path),
+    path: normalizedPath,
+    name: basename(normalizedPath),
+    extension,
+    size: stat?.size ?? 0,
+    read: () => adapter.read(normalizedPath),
+    readBinary: () => adapter.readBinary(normalizedPath),
   };
+}
+
+async function pathsToPublishFiles(
+  app: App,
+  paths: string[],
+  allowedExtensions: Set<string>
+): Promise<PublishFile[]> {
+  const files: PublishFile[] = [];
+  for (const path of paths) {
+    files.push(await pathToPublishFile(app, path, allowedExtensions));
+  }
+  return files;
 }
 
 async function listSnippetFiles(app: App): Promise<PublishFile[]> {
@@ -121,19 +175,12 @@ function snippetIdFromFile(file: Pick<PublishFile, "name">): string {
   return file.name.replace(/\.css$/i, "").toLowerCase();
 }
 
-async function listImageFiles(app: App): Promise<PublishFile[]> {
-  await Promise.resolve();
-  const imageExts = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
-  return app.vault
-    .getFiles()
-    .filter((f: TFile) => imageExts.has(f.extension.toLowerCase()))
-    .sort((a: TFile, b: TFile) => a.path.localeCompare(b.path))
-    .map((f) => tfileToPublishFile(app, f));
-}
-
 function toBase64(data: ArrayBuffer): string {
   return Buffer.from(data).toString("base64");
 }
+
+const MARKDOWN_EXTENSIONS = new Set(["md"]);
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 
 const CATEGORIES: Record<string, string[]> = {
   snippet: [
@@ -256,11 +303,12 @@ export class PublishModal extends Modal {
 
   private async hydrateDraftSelections() {
     if (this.pendingSelectedFilePaths) {
-      const files = await this.collectCandidateFiles();
-      this.restoreSelectionFromPaths(files, this.pendingSelectedFilePaths, (restored) => {
-        this.selectedFiles = restored;
+      try {
+        this.selectedFiles = await this.resolveResourcePaths(this.pendingSelectedFilePaths);
         this.pendingSelectedFilePaths = null;
-      });
+      } catch {
+        // Keep draft paths editable if a file moved or was deleted.
+      }
     }
 
     if ((this.resourceType === "note" || this.resourceType === "bundle") && this.pendingAttachedSnippetPaths) {
@@ -276,11 +324,12 @@ export class PublishModal extends Modal {
     }
 
     if (this.pendingScreenshotPaths) {
-      const imageFiles = await listImageFiles(this.app);
-      this.restoreSelectionFromPaths(imageFiles, this.pendingScreenshotPaths, (restored) => {
-        this.selectedScreenshots = restored;
+      try {
+        this.selectedScreenshots = await pathsToPublishFiles(this.app, this.pendingScreenshotPaths, IMAGE_EXTENSIONS);
         this.pendingScreenshotPaths = null;
-      });
+      } catch {
+        // Keep draft paths editable if a file moved or was deleted.
+      }
     }
   }
 
@@ -430,14 +479,18 @@ export class PublishModal extends Modal {
         });
       });
 
-    const files = await this.collectCandidateFiles();
+    const files = this.resourceType === "snippet"
+      ? await this.collectCandidateFiles()
+      : [];
     const availableSnippets = this.resourceType === "note"
       ? await listSnippetFiles(this.app)
       : [];
-    this.restoreSelectionFromPaths(files, this.pendingSelectedFilePaths, (restored) => {
-      this.selectedFiles = restored;
-      this.pendingSelectedFilePaths = null;
-    });
+    if (this.resourceType === "snippet") {
+      this.restoreSelectionFromPaths(files, this.pendingSelectedFilePaths, (restored) => {
+        this.selectedFiles = restored;
+        this.pendingSelectedFilePaths = null;
+      });
+    }
     if (this.resourceType === "note") {
       this.restoreSelectionFromPaths(
         availableSnippets,
@@ -453,37 +506,67 @@ export class PublishModal extends Modal {
     const isBundle = this.resourceType === "bundle";
     fileSection.createEl("h4", { text: `Select file${isBundle ? "s" : ""}` });
 
-    const fileSearch = fileSection.createEl("input", {
-      type: "text",
-      placeholder: "Search files...",
-      cls: "vault-hub-search-input",
-    });
-    fileSearch.value = this.fileSearchQuery;
-    fileSearch.addEventListener("input", () => {
-      this.fileSearchQuery = fileSearch.value;
-      renderFileList();
-    });
-
     if (this.resourceType === "snippet") {
+      const fileSearch = fileSection.createEl("input", {
+        type: "text",
+        placeholder: "Search files...",
+        cls: "vault-hub-search-input",
+      });
+      fileSearch.value = this.fileSearchQuery;
+      fileSearch.addEventListener("input", () => {
+        this.fileSearchQuery = fileSearch.value;
+        renderFileList();
+      });
+
       fileSection.createEl("p", {
         text: `Sourced from ${this.getSnippetDir()}. Drop .css files there if nothing shows up.`,
         cls: "vault-hub-hint",
       });
     } else {
       fileSection.createEl("p", {
-        text: "Root README.md and hub.md are managed by Vault hub and are excluded from resource files.",
+        text: "Enter exact markdown paths, one per line. Root README.md and hub.md are managed by Vault Hub and are excluded.",
         cls: "vault-hub-hint",
       });
     }
 
-    if (files.length === 0) {
+    if (this.resourceType !== "snippet") {
+      const initialPaths = this.selectedFiles.length > 0
+        ? this.selectedFiles.map((file) => file.path)
+        : [...(this.pendingSelectedFilePaths || [])];
+      const pathInput = fileSection.createEl("textarea", {
+        cls: "vault-hub-textarea-short",
+      });
+      pathInput.placeholder = isBundle ? "Folder/Note.md\nFolder/Template.md" : "Folder/Note.md";
+      pathInput.value = initialPaths.join("\n");
+      const pathStatus = fileSection.createEl("p", { cls: "vault-hub-hint" });
+
+      const updateResourcePaths = async () => {
+        this.fileSearchQuery = pathInput.value;
+        const paths = parsePathLines(pathInput.value);
+        this.pendingSelectedFilePaths = paths;
+        this.selectedFiles = [];
+        if (paths.length === 0) {
+          pathStatus.setText("No resource file paths selected.");
+          return;
+        }
+        if (!isBundle && paths.length > 1) {
+          pathStatus.setText("Notes can publish one markdown file. Use the bundle type for multiple files.");
+          return;
+        }
+        try {
+          this.selectedFiles = await this.resolveResourcePaths(paths);
+          this.pendingSelectedFilePaths = null;
+          pathStatus.setText(`${this.selectedFiles.length} file${this.selectedFiles.length === 1 ? "" : "s"} selected.`);
+        } catch (error) {
+          pathStatus.setText(String(error));
+        }
+      };
+
+      pathInput.addEventListener("input", () => void updateResourcePaths());
+      void updateResourcePaths();
+    } else if (files.length === 0) {
       fileSection.createEl("p", {
-        text:
-          this.resourceType === "snippet"
-            ? `No CSS snippets found in ${this.getSnippetDir()}.`
-            : this.resourceType === "bundle"
-            ? "No markdown files found in this vault."
-            : "No markdown files found in this vault.",
+        text: `No CSS snippets found in ${this.getSnippetDir()}.`,
         cls: "vault-hub-hint",
       });
     }
@@ -545,7 +628,9 @@ export class PublishModal extends Modal {
       });
     };
 
-    renderFileList();
+    if (this.resourceType === "snippet") {
+      renderFileList();
+    }
 
     if (this.resourceType === "note") {
       const snippetSection = c.createDiv();
@@ -621,16 +706,12 @@ export class PublishModal extends Modal {
   }
 
   private async collectCandidateFiles(): Promise<PublishFile[]> {
-    if (this.resourceType === "snippet") {
-      const snippets = await listSnippetFiles(this.app);
-      return snippets.sort((a, b) => a.path.localeCompare(b.path));
-    }
-    return this.app.vault
-      .getFiles()
-      .filter((f: TFile) => f.extension === "md")
-      .filter((f: TFile) => !isReservedRootPath(f.path))
-      .sort((a: TFile, b: TFile) => a.path.localeCompare(b.path))
-      .map((f) => tfileToPublishFile(this.app, f));
+    const snippets = await listSnippetFiles(this.app);
+    return snippets.sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  private async resolveResourcePaths(paths: string[]): Promise<PublishFile[]> {
+    return pathsToPublishFiles(this.app, paths, MARKDOWN_EXTENSIONS);
   }
 
   private async renderStep2() {
@@ -899,56 +980,20 @@ export class PublishModal extends Modal {
         t.inputEl.addClass("vault-hub-textarea-short");
       });
 
-    const screenshotSearch = screenshotSection.createEl("input", {
-      type: "text",
-      placeholder: "Search images...",
-      cls: "vault-hub-search-input",
-    });
-    screenshotSearch.value = this.screenshotSearchQuery;
-
-    const screenshotList = screenshotSection.createDiv("vault-hub-file-list");
-    const screenshotEmpty = screenshotSection.createEl("p", {
-      text: "No screenshots match that search.",
-      cls: "vault-hub-hint vault-hub-hidden",
-    });
-
-    const renderScreenshotList = async () => {
-      const allImages = await listImageFiles(this.app);
-      this.restoreSelectionFromPaths(allImages, this.pendingScreenshotPaths, (restored) => {
-        this.selectedScreenshots = restored;
-        this.pendingScreenshotPaths = null;
+    new Setting(screenshotSection)
+      .setName("Local screenshot paths")
+      .setDesc("Optional. One exact vault image path per line.")
+      .addTextArea((t: TextAreaComponent) => {
+        const initialPaths = this.selectedScreenshots.length > 0
+          ? this.selectedScreenshots.map((file) => file.path)
+          : [...(this.pendingScreenshotPaths || [])];
+        t.setPlaceholder("Images/screenshot.png").setValue(initialPaths.join("\n"));
+        t.inputEl.addClass("vault-hub-textarea-short");
+        t.onChange((value) => void this.updateScreenshotPaths(value));
+        if (initialPaths.length > 0 && this.selectedScreenshots.length === 0) {
+          void this.updateScreenshotPaths(t.inputEl.value);
+        }
       });
-      const needle = this.screenshotSearchQuery.trim().toLowerCase();
-      const visibleImages = needle
-        ? allImages.filter((file) => file.path.toLowerCase().includes(needle))
-        : allImages;
-      const selectedImagePaths = new Set(this.selectedScreenshots.map((file) => file.path));
-
-      screenshotList.empty();
-      screenshotEmpty.toggleClass("vault-hub-hidden", !(allImages.length > 0 && visibleImages.length === 0));
-
-      if (allImages.length === 0) {
-        screenshotList.createEl("p", {
-          text: "No image files found in this vault.",
-          cls: "vault-hub-hint",
-        });
-        return;
-      }
-
-      visibleImages.forEach((file) => {
-        const row = screenshotList.createDiv("vault-hub-file-row");
-        const cb = row.createEl("input", { type: "checkbox" });
-        cb.checked = selectedImagePaths.has(file.path);
-        cb.addEventListener("change", () => {
-          if (cb.checked) this.selectedScreenshots.push(file);
-          else this.selectedScreenshots = this.selectedScreenshots.filter((x) => x.path !== file.path);
-        });
-        row.createSpan({ text: file.path });
-      });
-    };
-
-    screenshotSearch.addEventListener("input", () => void this.updateScreenshotSearch(screenshotSearch, renderScreenshotList));
-    void renderScreenshotList();
 
     if (this.resourceType === "snippet") {
       new Setting(c).setName("Compatible themes").addDropdown((dd: DropdownComponent) => {
@@ -1270,12 +1315,19 @@ export class PublishModal extends Modal {
     this.renderStep();
   }
 
-  private async updateScreenshotSearch(
-    input: HTMLInputElement,
-    renderScreenshotList: () => Promise<void>
-  ) {
-    this.screenshotSearchQuery = input.value;
-    await renderScreenshotList();
+  private async updateScreenshotPaths(value: string) {
+    this.screenshotSearchQuery = value;
+    const paths = parsePathLines(value);
+    this.pendingScreenshotPaths = paths;
+    this.selectedScreenshots = [];
+    if (paths.length === 0) return;
+
+    try {
+      this.selectedScreenshots = await pathsToPublishFiles(this.app, paths, IMAGE_EXTENSIONS);
+      this.pendingScreenshotPaths = null;
+    } catch (error) {
+      new Notice(String(error));
+    }
   }
 
   private buildReadmeData(): ReadmeData {

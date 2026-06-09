@@ -1,7 +1,7 @@
 {
   "id": "vault-hub",
   "name": "Vault Hub",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "minAppVersion": "1.7.2",
   "description": "Publish CSS snippets, notes, and templates to the Vault Hub community platform.",
   "author": "Maws7140",
