@@ -772,7 +772,7 @@ export class BrowseView extends ItemView {
 }
 
 function getAppInternals(app: App): App & AppInternals {
-  return app as App & AppInternals;
+  return app;
 }
 
 function parseAppearanceConfig(raw: string): AppearanceConfig {

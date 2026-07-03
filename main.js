@@ -56,24 +56,6 @@ var VaultHubSettingTab = class extends import_obsidian.PluginSettingTab {
         void this.plugin.saveSettings();
       });
     });
-    new import_obsidian.Setting(containerEl).setName("Hub URL").setDesc("URL of the vault hub website.").addText(
-      (text) => text.setPlaceholder("https://obsidianvaulthub.com").setValue(this.plugin.settings.vaultHubUrl).onChange((value) => {
-        this.plugin.settings.vaultHubUrl = value;
-        void this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian.Setting(containerEl).setName("Catalog repository").setDesc("Repository that stores the website catalog workflow. Used to request a refresh after publish or update.").addText(
-      (text) => text.setPlaceholder("Maws7140/vault-hub").setValue(this.plugin.settings.catalogRepoFullName).onChange((value) => {
-        this.plugin.settings.catalogRepoFullName = value.trim();
-        void this.plugin.saveSettings();
-      })
-    );
-    new import_obsidian.Setting(containerEl).setName("Default categories").setDesc("Comma-separated list of default categories for new publications.").addText(
-      (text) => text.setPlaceholder("Appearance, workflow").setValue(this.plugin.settings.defaultCategories.join(", ")).onChange((value) => {
-        this.plugin.settings.defaultCategories = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-        void this.plugin.saveSettings();
-      })
-    );
   }
 };
 
@@ -569,60 +551,6 @@ var RESERVED_ROOT_PATHS = /* @__PURE__ */ new Set(["readme.md", "hub.md"]);
 function isReservedRootPath(path) {
   return RESERVED_ROOT_PATHS.has(path.trim().replace(/\\/g, "/").toLowerCase());
 }
-function normalizeVaultPath(path) {
-  return path.trim().replace(/\\/g, "/").replace(/^\/+/, "");
-}
-function basename(path) {
-  return path.split("/").pop() || path;
-}
-function extensionFromPath(path) {
-  const name = basename(path);
-  const dot = name.lastIndexOf(".");
-  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
-}
-function parsePathLines(value) {
-  const seen = /* @__PURE__ */ new Set();
-  const paths = [];
-  for (const line of value.split(/\r?\n/)) {
-    const path = normalizeVaultPath(line);
-    if (!path || seen.has(path.toLowerCase())) continue;
-    seen.add(path.toLowerCase());
-    paths.push(path);
-  }
-  return paths;
-}
-async function pathToPublishFile(app, path, allowedExtensions) {
-  var _a;
-  const normalizedPath = normalizeVaultPath(path);
-  if (!normalizedPath) throw new Error("Path is required");
-  if (isReservedRootPath(normalizedPath)) {
-    throw new Error(`${normalizedPath} is managed by Vault Hub and cannot be published as a resource file`);
-  }
-  const extension = extensionFromPath(normalizedPath);
-  if (!allowedExtensions.has(extension)) {
-    throw new Error(`${normalizedPath} must be a ${[...allowedExtensions].join(" or ")} file`);
-  }
-  const adapter = app.vault.adapter;
-  if (!await adapter.exists(normalizedPath)) {
-    throw new Error(`${normalizedPath} was not found`);
-  }
-  const stat = await adapter.stat(normalizedPath);
-  return {
-    path: normalizedPath,
-    name: basename(normalizedPath),
-    extension,
-    size: (_a = stat == null ? void 0 : stat.size) != null ? _a : 0,
-    read: () => adapter.read(normalizedPath),
-    readBinary: () => adapter.readBinary(normalizedPath)
-  };
-}
-async function pathsToPublishFiles(app, paths, allowedExtensions) {
-  const files = [];
-  for (const path of paths) {
-    files.push(await pathToPublishFile(app, path, allowedExtensions));
-  }
-  return files;
-}
 async function listSnippetFiles(app) {
   const adapter = app.vault.adapter;
   const dir = getSnippetDirectory(app.vault);
@@ -655,6 +583,34 @@ async function listSnippetFiles(app) {
     return [];
   }
 }
+async function listMarkdownFiles(app) {
+  const adapter = app.vault.adapter;
+  return app.vault.getMarkdownFiles().filter((file) => !isReservedRootPath(file.path)).map((file) => {
+    var _a, _b;
+    return {
+      path: file.path,
+      name: file.name,
+      extension: "md",
+      size: (_b = (_a = file.stat) == null ? void 0 : _a.size) != null ? _b : 0,
+      read: () => adapter.read(file.path),
+      readBinary: () => adapter.readBinary(file.path)
+    };
+  }).sort((a, b) => a.path.localeCompare(b.path));
+}
+async function listImageFiles(app) {
+  const adapter = app.vault.adapter;
+  return app.vault.getFiles().filter((file) => IMAGE_EXTENSIONS.has(file.extension.toLowerCase())).map((file) => {
+    var _a, _b;
+    return {
+      path: file.path,
+      name: file.name,
+      extension: file.extension.toLowerCase(),
+      size: (_b = (_a = file.stat) == null ? void 0 : _a.size) != null ? _b : 0,
+      read: () => adapter.read(file.path),
+      readBinary: () => adapter.readBinary(file.path)
+    };
+  }).sort((a, b) => a.path.localeCompare(b.path));
+}
 async function getEnabledSnippetIds(app) {
   try {
     const raw = await app.vault.adapter.read(`${app.vault.configDir}/appearance.json`);
@@ -670,7 +626,6 @@ function snippetIdFromFile(file) {
 function toBase64(data) {
   return Buffer.from(data).toString("base64");
 }
-var MARKDOWN_EXTENSIONS = /* @__PURE__ */ new Set(["md"]);
 var IMAGE_EXTENSIONS = /* @__PURE__ */ new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
 var CATEGORIES = {
   snippet: [
@@ -801,11 +756,11 @@ var PublishModal = class extends import_obsidian4.Modal {
   }
   async hydrateDraftSelections() {
     if (this.pendingSelectedFilePaths) {
-      try {
-        this.selectedFiles = await this.resolveResourcePaths(this.pendingSelectedFilePaths);
+      const source = this.resourceType === "snippet" ? await listSnippetFiles(this.app) : await listMarkdownFiles(this.app);
+      this.restoreSelectionFromPaths(source, this.pendingSelectedFilePaths, (restored) => {
+        this.selectedFiles = restored;
         this.pendingSelectedFilePaths = null;
-      } catch (e) {
-      }
+      });
     }
     if ((this.resourceType === "note" || this.resourceType === "bundle") && this.pendingAttachedSnippetPaths) {
       const snippetFiles = await listSnippetFiles(this.app);
@@ -819,11 +774,11 @@ var PublishModal = class extends import_obsidian4.Modal {
       );
     }
     if (this.pendingScreenshotPaths) {
-      try {
-        this.selectedScreenshots = await pathsToPublishFiles(this.app, this.pendingScreenshotPaths, IMAGE_EXTENSIONS);
+      const imageFiles = await listImageFiles(this.app);
+      this.restoreSelectionFromPaths(imageFiles, this.pendingScreenshotPaths, (restored) => {
+        this.selectedScreenshots = restored;
         this.pendingScreenshotPaths = null;
-      } catch (e) {
-      }
+      });
     }
   }
   hasDraftContent() {
@@ -943,14 +898,13 @@ var PublishModal = class extends import_obsidian4.Modal {
         this.renderStep();
       });
     });
-    const files = this.resourceType === "snippet" ? await this.collectCandidateFiles() : [];
+    const isBundle = this.resourceType === "bundle";
+    const files = this.resourceType === "snippet" ? await this.collectCandidateFiles() : await listMarkdownFiles(this.app);
     const availableSnippets = this.resourceType === "note" ? await listSnippetFiles(this.app) : [];
-    if (this.resourceType === "snippet") {
-      this.restoreSelectionFromPaths(files, this.pendingSelectedFilePaths, (restored) => {
-        this.selectedFiles = restored;
-        this.pendingSelectedFilePaths = null;
-      });
-    }
+    this.restoreSelectionFromPaths(files, this.pendingSelectedFilePaths, (restored) => {
+      this.selectedFiles = restored;
+      this.pendingSelectedFilePaths = null;
+    });
     if (this.resourceType === "note") {
       this.restoreSelectionFromPaths(
         availableSnippets,
@@ -962,63 +916,23 @@ var PublishModal = class extends import_obsidian4.Modal {
       );
     }
     const fileSection = c.createDiv();
-    const isBundle = this.resourceType === "bundle";
     fileSection.createEl("h4", { text: `Select file${isBundle ? "s" : ""}` });
-    if (this.resourceType === "snippet") {
-      const fileSearch = fileSection.createEl("input", {
-        type: "text",
-        placeholder: "Search files...",
-        cls: "vault-hub-search-input"
-      });
-      fileSearch.value = this.fileSearchQuery;
-      fileSearch.addEventListener("input", () => {
-        this.fileSearchQuery = fileSearch.value;
-        renderFileList();
-      });
+    const fileSearch = fileSection.createEl("input", {
+      type: "text",
+      placeholder: "Search files...",
+      cls: "vault-hub-search-input"
+    });
+    fileSearch.value = this.fileSearchQuery;
+    fileSearch.addEventListener("input", () => {
+      this.fileSearchQuery = fileSearch.value;
+      renderFileList();
+    });
+    const emptySourceText = this.resourceType === "snippet" ? `No CSS snippets found in ${this.getSnippetDir()}. Drop .css files there if nothing shows up.` : isBundle ? "No markdown notes found in this vault." : "No markdown notes found in this vault. Root README.md and hub.md are managed by Vault Hub and are excluded.";
+    if (files.length === 0) {
+      fileSection.createEl("p", { text: emptySourceText, cls: "vault-hub-hint" });
+    } else if (this.resourceType !== "snippet") {
       fileSection.createEl("p", {
-        text: `Sourced from ${this.getSnippetDir()}. Drop .css files there if nothing shows up.`,
-        cls: "vault-hub-hint"
-      });
-    } else {
-      fileSection.createEl("p", {
-        text: "Enter exact markdown paths, one per line. Root README.md and hub.md are managed by Vault Hub and are excluded.",
-        cls: "vault-hub-hint"
-      });
-    }
-    if (this.resourceType !== "snippet") {
-      const initialPaths = this.selectedFiles.length > 0 ? this.selectedFiles.map((file) => file.path) : [...this.pendingSelectedFilePaths || []];
-      const pathInput = fileSection.createEl("textarea", {
-        cls: "vault-hub-textarea-short"
-      });
-      pathInput.placeholder = isBundle ? "Folder/Note.md\nFolder/Template.md" : "Folder/Note.md";
-      pathInput.value = initialPaths.join("\n");
-      const pathStatus = fileSection.createEl("p", { cls: "vault-hub-hint" });
-      const updateResourcePaths = async () => {
-        this.fileSearchQuery = pathInput.value;
-        const paths = parsePathLines(pathInput.value);
-        this.pendingSelectedFilePaths = paths;
-        this.selectedFiles = [];
-        if (paths.length === 0) {
-          pathStatus.setText("No resource file paths selected.");
-          return;
-        }
-        if (!isBundle && paths.length > 1) {
-          pathStatus.setText("Notes can publish one markdown file. Use the bundle type for multiple files.");
-          return;
-        }
-        try {
-          this.selectedFiles = await this.resolveResourcePaths(paths);
-          this.pendingSelectedFilePaths = null;
-          pathStatus.setText(`${this.selectedFiles.length} file${this.selectedFiles.length === 1 ? "" : "s"} selected.`);
-        } catch (error) {
-          pathStatus.setText(String(error));
-        }
-      };
-      pathInput.addEventListener("input", () => void updateResourcePaths());
-      void updateResourcePaths();
-    } else if (files.length === 0) {
-      fileSection.createEl("p", {
-        text: `No CSS snippets found in ${this.getSnippetDir()}.`,
+        text: isBundle ? "Pick the markdown notes to publish. Root README.md and hub.md are managed by Vault Hub and are excluded." : "Pick the markdown note to publish.",
         cls: "vault-hub-hint"
       });
     }
@@ -1072,9 +986,7 @@ var PublishModal = class extends import_obsidian4.Modal {
         row.createSpan({ text: f.path });
       });
     };
-    if (this.resourceType === "snippet") {
-      renderFileList();
-    }
+    renderFileList();
     if (this.resourceType === "note") {
       const snippetSection = c.createDiv();
       snippetSection.createEl("h4", { text: "Attach CSS snippets" });
@@ -1141,9 +1053,6 @@ var PublishModal = class extends import_obsidian4.Modal {
   async collectCandidateFiles() {
     const snippets = await listSnippetFiles(this.app);
     return snippets.sort((a, b) => a.path.localeCompare(b.path));
-  }
-  async resolveResourcePaths(paths) {
-    return pathsToPublishFiles(this.app, paths, MARKDOWN_EXTENSIONS);
   }
   async renderStep2() {
     const c = this.contentEl;
@@ -1371,15 +1280,14 @@ var PublishModal = class extends import_obsidian4.Modal {
       t.onChange((v) => this.externalScreenshotUrls = v);
       t.inputEl.addClass("vault-hub-textarea-short");
     });
-    new import_obsidian4.Setting(screenshotSection).setName("Local screenshot paths").setDesc("Optional. One exact vault image path per line.").addTextArea((t) => {
-      const initialPaths = this.selectedScreenshots.length > 0 ? this.selectedScreenshots.map((file) => file.path) : [...this.pendingScreenshotPaths || []];
-      t.setPlaceholder("Images/screenshot.png").setValue(initialPaths.join("\n"));
-      t.inputEl.addClass("vault-hub-textarea-short");
-      t.onChange((value) => void this.updateScreenshotPaths(value));
-      if (initialPaths.length > 0 && this.selectedScreenshots.length === 0) {
-        void this.updateScreenshotPaths(t.inputEl.value);
-      }
+    const localScreenshotSection = screenshotSection.createDiv();
+    localScreenshotSection.createEl("h4", { text: "Local screenshots" });
+    localScreenshotSection.createEl("p", {
+      text: "Optional. Pick image files from your vault.",
+      cls: "vault-hub-hint"
     });
+    localScreenshotSection.createEl("p", { text: "Loading images...", cls: "vault-hub-hint" });
+    void this.renderScreenshotPicker(localScreenshotSection);
     if (this.resourceType === "snippet") {
       new import_obsidian4.Setting(c).setName("Compatible themes").addDropdown((dd) => {
         dd.addOption("any", "Any theme");
@@ -1452,10 +1360,17 @@ var PublishModal = class extends import_obsidian4.Modal {
     publishBtn.addEventListener("click", () => void this.doPublish());
   }
   async doPublish() {
-    var _a;
+    var _a, _b;
     const token = this.plugin.settings.githubToken;
     if (!token) {
       new import_obsidian4.Notice("Set your GitHub token in vault hub settings first");
+      return;
+    }
+    const resourceFiles = this.getPublishResourceFiles();
+    if (resourceFiles.length === 0) {
+      new import_obsidian4.Notice("Select at least one file to publish before continuing.");
+      this.step = 1;
+      this.renderStep();
       return;
     }
     const c = this.contentEl;
@@ -1467,7 +1382,6 @@ var PublishModal = class extends import_obsidian4.Modal {
       const gh = new GitHubAPI(token);
       const user = await gh.getUser();
       const publishedType = this.getPublishedType();
-      const resourceFiles = this.getPublishResourceFiles();
       const slug = this.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "resource";
       const repoName = await gh.getAvailableRepoName(user.login, `obsidian-${publishedType}-${slug}`);
       status.setText("Creating repository...");
@@ -1562,7 +1476,7 @@ var PublishModal = class extends import_obsidian4.Modal {
       }
       const publishedResource = {
         repoFullName: repo.full_name,
-        localFilePath: ((_a = resourceFiles[0]) == null ? void 0 : _a.path) || this.selectedFiles[0].path,
+        localFilePath: ((_a = resourceFiles[0]) == null ? void 0 : _a.path) || ((_b = this.selectedFiles[0]) == null ? void 0 : _b.path) || "",
         localFiles: resourceFiles.map((f) => f.path),
         fileMappings: [
           ...resourceFiles.map((f) => ({ localPath: f.path, repoPath: f.path, kind: "resource" })),
@@ -1645,18 +1559,72 @@ var PublishModal = class extends import_obsidian4.Modal {
     await this.saveDraft();
     this.renderStep();
   }
-  async updateScreenshotPaths(value) {
-    this.screenshotSearchQuery = value;
-    const paths = parsePathLines(value);
-    this.pendingScreenshotPaths = paths;
-    this.selectedScreenshots = [];
-    if (paths.length === 0) return;
-    try {
-      this.selectedScreenshots = await pathsToPublishFiles(this.app, paths, IMAGE_EXTENSIONS);
+  async renderScreenshotPicker(section) {
+    var _a;
+    const images = await listImageFiles(this.app);
+    if (this.pendingScreenshotPaths) {
+      const wanted = new Set(this.pendingScreenshotPaths);
+      this.selectedScreenshots = images.filter((file) => wanted.has(file.path));
       this.pendingScreenshotPaths = null;
-    } catch (error) {
-      new import_obsidian4.Notice(String(error));
     }
+    while (section.childElementCount > 2) {
+      (_a = section.lastElementChild) == null ? void 0 : _a.remove();
+    }
+    if (images.length === 0) {
+      section.createEl("p", {
+        text: "No image files found in this vault.",
+        cls: "vault-hub-hint"
+      });
+      return;
+    }
+    const search = section.createEl("input", {
+      type: "text",
+      placeholder: "Search images...",
+      cls: "vault-hub-search-input"
+    });
+    search.value = this.screenshotSearchQuery;
+    const bulk = section.createDiv("vault-hub-bulk");
+    const clearAll = bulk.createEl("button", { text: "Clear" });
+    clearAll.type = "button";
+    const count = bulk.createSpan({ cls: "vault-hub-bulk-count" });
+    const list = section.createDiv("vault-hub-file-list");
+    const emptySearch = section.createEl("p", {
+      text: "No images match that search.",
+      cls: "vault-hub-hint vault-hub-hidden"
+    });
+    const render = () => {
+      const needle = this.screenshotSearchQuery.trim().toLowerCase();
+      const visible = needle ? images.filter((file) => file.path.toLowerCase().includes(needle)) : images;
+      const selectedPaths = new Set(this.selectedScreenshots.map((file) => file.path));
+      list.empty();
+      emptySearch.toggleClass("vault-hub-hidden", visible.length !== 0);
+      count.setText(`${this.selectedScreenshots.length} selected`);
+      visible.forEach((file) => {
+        const row = list.createDiv("vault-hub-file-row");
+        const cb = row.createEl("input", { type: "checkbox" });
+        cb.checked = selectedPaths.has(file.path);
+        cb.addEventListener("change", () => {
+          if (cb.checked) {
+            if (!this.selectedScreenshots.some((value) => value.path === file.path)) {
+              this.selectedScreenshots.push(file);
+            }
+          } else {
+            this.selectedScreenshots = this.selectedScreenshots.filter((x) => x.path !== file.path);
+          }
+          count.setText(`${this.selectedScreenshots.length} selected`);
+        });
+        row.createSpan({ text: file.path });
+      });
+    };
+    clearAll.addEventListener("click", () => {
+      this.selectedScreenshots = [];
+      render();
+    });
+    search.addEventListener("input", () => {
+      this.screenshotSearchQuery = search.value;
+      render();
+    });
+    render();
   }
   buildReadmeData() {
     const resourceFiles = this.getPublishResourceFiles();
@@ -2157,7 +2125,7 @@ function isDashboardResource(resource) {
 function encodeGitHubPath(path) {
   return path.split("/").map(encodeURIComponent).join("/");
 }
-function basename2(path) {
+function basename(path) {
   return path.split("/").pop() || path;
 }
 function extractFrontmatter(text) {
@@ -2505,7 +2473,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
     }
     for (const f of cssFiles) {
       const raw = await requestText(`https://raw.githubusercontent.com/${r.full_name}/HEAD/${encodeGitHubPath(f.path)}`);
-      const target = await this.availablePath(`${snippetsDir}/${basename2(f.path)}`);
+      const target = await this.availablePath(`${snippetsDir}/${basename(f.path)}`);
       await this.app.vault.adapter.write(target, raw);
     }
     new import_obsidian6.Notice(
@@ -2524,7 +2492,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
       throw new Error(treeData.message || "Failed to fetch repository tree");
     }
     const mdFiles = tree.filter(
-      (f) => f.type === "blob" && f.path.endsWith(".md") && basename2(f.path).toLowerCase() !== "readme.md"
+      (f) => f.type === "blob" && f.path.endsWith(".md") && basename(f.path).toLowerCase() !== "readme.md"
     );
     if (mdFiles.length === 0) {
       throw new Error("No note files found in this repository");
@@ -2560,7 +2528,7 @@ var BrowseView = class extends import_obsidian6.ItemView {
         const raw = await requestText(
           `https://raw.githubusercontent.com/${r.full_name}/HEAD/${encodeGitHubPath(snippet.path)}`
         );
-        const target = await this.availablePath(`${snippetsDir}/${basename2(snippet.path)}`);
+        const target = await this.availablePath(`${snippetsDir}/${basename(snippet.path)}`);
         await this.app.vault.adapter.write(target, raw);
         installed++;
       } catch (e) {

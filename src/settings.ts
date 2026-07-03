@@ -80,47 +80,5 @@ export class VaultHubSettingTab extends PluginSettingTab {
           void this.plugin.saveSettings();
         });
       });
-
-    new Setting(containerEl)
-      .setName("Hub URL")
-      .setDesc("URL of the vault hub website.")
-      .addText((text) =>
-        text
-          .setPlaceholder("https://obsidianvaulthub.com")
-          .setValue(this.plugin.settings.vaultHubUrl)
-          .onChange((value) => {
-            this.plugin.settings.vaultHubUrl = value;
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Catalog repository")
-      .setDesc("Repository that stores the website catalog workflow. Used to request a refresh after publish or update.")
-      .addText((text) =>
-        text
-          .setPlaceholder("Maws7140/vault-hub")
-          .setValue(this.plugin.settings.catalogRepoFullName)
-          .onChange((value) => {
-            this.plugin.settings.catalogRepoFullName = value.trim();
-            void this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
-      .setName("Default categories")
-      .setDesc("Comma-separated list of default categories for new publications.")
-      .addText((text) =>
-        text
-          .setPlaceholder("Appearance, workflow")
-          .setValue(this.plugin.settings.defaultCategories.join(", "))
-          .onChange((value) => {
-            this.plugin.settings.defaultCategories = value
-              .split(",")
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0);
-            void this.plugin.saveSettings();
-          })
-      );
   }
 }
